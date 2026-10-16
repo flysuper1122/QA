@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="即時翻譯">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#2563eb">
+  <title>即時翻譯</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+
+  <style>
+    :root {
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    html, body { height: 100%; }
+    body {
+      padding-top: var(--safe-top);
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      overscroll-behavior: none;
+    }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    .header-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .header-scroll::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900 font-sans h-[100dvh] flex flex-col overflow-hidden">
+
+  <header class="bg-white shadow-sm border-b border-slate-200 px-3 sm:px-4 md:px-6 py-3 flex flex-col gap-2 shrink-0">
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <div class="bg-blue-600 p-2 rounded-lg text-white shadow-md shrink-0">
+          <i data-lucide="arrow-left-right" class="w-5 h-5"></i>
+        </div>
+        <h1 class="text-base sm:text-xl font-bold tracking-tight text-slate-800 truncate">
+          即時翻譯
+          <span id="headerLangBadge" class="text-xs sm:text-sm font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded ml-1 border border-blue-200 whitespace-nowrap">英中雙向</span>
+        </h1>
+      </div>
+      <span id="statusBadge" class="flex items-center text-xs sm:text-sm font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200 whitespace-nowrap shrink-0">
+        待機中
+      </span>
+    </div>
+
+    <div class="header-scroll flex items-center gap-2">
+      <select id="targetLangSelect" class="text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-slate-700 shrink-0">
+        <option value="English" selected>英中雙向</option>
+        <option value="Japanese">日中雙向</option>
+        <option value="Korean">韓中雙向</option>
+        <option value="Thai">泰中雙向</option>
+        <option value="Spanish">西中雙向</option>
+        <option value="French">法中雙向</option>
+      </select>
+
+      <select id="voiceSelect" class="text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-slate-700 shrink-0">
+        <option value="Zephyr" selected>Zephyr (明亮)</option>
+        <option value="Puck">Puck (活潑)</option>
+        <option value="Charon">Charon (專業)</option>
+        <option value="Kore">Kore (堅定)</option>
+        <option value="Fenrir">Fenrir (熱情)</option>
+        <option value="Aoede">Aoede (輕鬆)</option>
+      </select>
+      <select id="styleSelect" class="text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-slate-700 shrink-0">
+        <option value="naturally">自然語氣</option>
+        <option value="cheerfully and excitedly">熱情歡樂</option>
+        <option value="professionally and calmly">專業冷靜</option>
+        <option value="like a news anchor">新聞主播</option>
+      </select>
+
+      <div id="apiKeyWrap" class="flex items-center gap-1.5 shrink-0">
+        <input
+          type="password"
+          id="apiKeyInput"
+          placeholder="Gemini API Key"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          class="text-sm border border-slate-300 rounded-md px-2.5 py-1.5 w-40 sm:w-48 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+        />
+        <span id="keySaveBadge" class="hidden text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1.5 whitespace-nowrap">已保存</span>
+        <button
+          type="button"
+          id="clearKeyBtn"
+          title="清除已保存的 API Key"
+          class="text-xs text-slate-500 border border-slate-300 rounded-md px-2 py-1.5 bg-white hover:bg-slate-50 shrink-0"
+        >清除</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 flex flex-col gap-4 overflow-y-auto" id="transcriptContainer">
+
+    <div id="dataUrlWarn" class="hidden bg-amber-50 border border-amber-300 text-amber-900 text-sm rounded-lg p-3 leading-relaxed">
+      偵測到以 <code>data:</code> 開啟（舊版描述檔）。此模式無法穩定保存 API Key，且語音常會失效。請改用新的 HTTPS 描述檔，或用 Safari 開啟 HTTPS 網址後「加入主畫面」。
+    </div>
+
+    <div id="permHint" class="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-lg p-3 leading-relaxed">
+      可用<strong>麥克風</strong>或下方<strong>文字輸入</strong>翻譯。輸入 API Key 後會顯示「已保存」。請使用 <strong>HTTPS</strong> 開啟本頁（Safari）。
+    </div>
+
+    <div id="errorAlert" class="hidden bg-red-50 border-red-500 border-l-4 p-4 rounded-md flex items-start gap-3 shrink-0">
+      <i data-lucide="alert-circle" class="text-red-500 mt-0.5 shrink-0"></i>
+      <p id="errorMsg" class="text-red-700 text-sm font-medium"></p>
+    </div>
+
+    <div id="welcomeScreen" class="flex-1 flex flex-col items-center justify-center text-slate-400 gap-4 mt-6 transition-opacity">
+      <div class="bg-slate-100 p-6 rounded-full border-2 border-dashed border-slate-200 relative">
+        <i data-lucide="mic" class="w-12 h-12 text-slate-400"></i>
+        <div class="absolute -bottom-2 -right-2 bg-blue-100 p-1.5 rounded-full border border-blue-200">
+          <i data-lucide="languages" class="w-6 h-6 text-blue-600"></i>
+        </div>
+      </div>
+      <p class="text-base sm:text-lg text-center leading-relaxed px-2">
+        可用麥克風說話，或直接輸入文字翻譯。<br/>
+        支援 <span class="font-medium text-slate-600">中文</span> 與 <span id="welcomeTargetLang" class="font-medium text-slate-600">英文</span> 雙向自動偵測。
+      </p>
+    </div>
+  </main>
+
+  <footer class="bg-white border-t border-slate-200 p-3 sm:p-4 flex flex-col items-center gap-3 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] shrink-0" style="padding-bottom: calc(1rem + var(--safe-bottom));">
+    <form id="textInputForm" class="w-full max-w-xl flex items-center gap-2">
+      <input
+        type="text"
+        id="manualInput"
+        enterkeyhint="send"
+        autocomplete="off"
+        placeholder="輸入文字後送出翻譯…"
+        class="flex-1 bg-slate-50 border border-slate-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-slate-700"
+      />
+      <button
+        type="submit"
+        id="sendTextBtn"
+        title="送出文字翻譯"
+        class="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white p-2.5 rounded-full shadow-sm transition shrink-0"
+      >
+        <i data-lucide="send" class="w-4 h-4"></i>
+      </button>
+    </form>
+
+    <button
+      id="controlBtn"
+      type="button"
+      class="flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-all active:scale-95 shadow-lg shadow-blue-600/30 w-full max-w-sm"
+    >
+      <i data-lucide="mic"></i>
+      <span>開始語音翻譯</span>
+    </button>
+  </footer>
+
+  <!-- 不使用 type=module，避免 iOS data:/隔離環境下整段腳本失效 -->
+  <script>
+    (function () {
+      const cn2tw = window.OpenCC
+        ? window.OpenCC.Converter({ from: 'cn', to: 'twp' })
+        : function (text) { return text; };
+
+      if (window.lucide) lucide.createIcons();
+
+      const API_KEY_STORAGE = 'gemini_api_key';
+
+      const apiKeyInput = document.getElementById('apiKeyInput');
+      const clearKeyBtn = document.getElementById('clearKeyBtn');
+      const keySaveBadge = document.getElementById('keySaveBadge');
+      const apiKeyWrap = document.getElementById('apiKeyWrap');
+      const statusBadge = document.getElementById('statusBadge');
+      const errorAlert = document.getElementById('errorAlert');
+      const errorMsg = document.getElementById('errorMsg');
+      const welcomeScreen = document.getElementById('welcomeScreen');
+      const transcriptContainer = document.getElementById('transcriptContainer');
+      const controlBtn = document.getElementById('controlBtn');
+      const voiceSelect = document.getElementById('voiceSelect');
+      const styleSelect = document.getElementById('styleSelect');
+      const targetLangSelect = document.getElementById('targetLangSelect');
+      const headerLangBadge = document.getElementById('headerLangBadge');
+      const welcomeTargetLang = document.getElementById('welcomeTargetLang');
+      const permHint = document.getElementById('permHint');
+      const dataUrlWarn = document.getElementById('dataUrlWarn');
+      const textInputForm = document.getElementById('textInputForm');
+      const manualInput = document.getElementById('manualInput');
+      const sendTextBtn = document.getElementById('sendTextBtn');
+
+      const langNameMap = {
+        English: '英文', Japanese: '日文', Korean: '韓文',
+        Thai: '泰文', Spanish: '西班牙文', French: '法文',
+      };
+      const langBcp47 = {
+        English: 'en-US', Japanese: 'ja-JP', Korean: 'ko-KR',
+        Thai: 'th-TH', Spanish: 'es-ES', French: 'fr-FR',
+      };
+
+      let isSessionActive = false;
+      let isRecognizing = false;
+      let isTranslating = false;
+      let isPlayingAudio = false;
+      let audioContext = null;
+      let recognition = null;
+      let micStream = null;
+      let micKeepAliveNode = null;
+      let silenceTimer = null;
+      let restartTimer = null;
+      let transcriptIdCounter = 0;
+      let keyBadgeTimer = null;
+      let currentAudioSource = null;
+      var audioClipStore = {};
+
+      // data: 舊描述檔偵測
+      if (location.protocol === 'data:') {
+        dataUrlWarn.classList.remove('hidden');
+      }
+
+      targetLangSelect.addEventListener('change', function (e) {
+        const langZh = langNameMap[e.target.value];
+        welcomeTargetLang.textContent = langZh;
+        headerLangBadge.textContent = langZh.substring(0, 1) + '中雙向';
+      });
+
+      function showError(msg) {
+        errorMsg.textContent = msg;
+        errorAlert.classList.remove('hidden');
+      }
+      function hideError() {
+        errorAlert.classList.add('hidden');
+      }
+
+      function showKeySavedBadge(ok) {
+        if (!ok) {
+          keySaveBadge.classList.add('hidden');
+          return;
+        }
+        keySaveBadge.textContent = '已保存';
+        keySaveBadge.className = 'text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1.5 whitespace-nowrap';
+        keySaveBadge.classList.remove('hidden');
+        clearTimeout(keyBadgeTimer);
+        keyBadgeTimer = setTimeout(function () {
+          // 仍顯示精簡狀態，方便確認有 Key
+          if (apiKeyInput.value.trim()) {
+            keySaveBadge.textContent = '已存';
+          } else {
+            keySaveBadge.classList.add('hidden');
+          }
+        }, 2500);
+      }
+
+      function loadSavedApiKey() {
+        try {
+          var raw =
+            localStorage.getItem(API_KEY_STORAGE) ||
+            localStorage.getItem('gemini_api_key_temp') ||
+            localStorage.getItem('gemini_api_key_html') ||
+            '';
+          if (!raw) return '';
+          if (raw.charAt(0) === '{') {
+            var parsed = JSON.parse(raw);
+            return (parsed && parsed.key) || '';
+          }
+          return raw;
+        } catch (e) {
+          return '';
+        }
+      }
+
+      function saveApiKey(key) {
+        var value = (key || '').trim();
+        if (!value) return false;
+        try {
+          localStorage.setItem(API_KEY_STORAGE, value);
+          localStorage.removeItem('gemini_api_key_temp');
+          localStorage.removeItem('gemini_api_key_html');
+          sessionStorage.removeItem('gemini_api_key_temp');
+          // 驗證是否真的寫入成功（data: 常會失敗）
+          var ok = localStorage.getItem(API_KEY_STORAGE) === value;
+          showKeySavedBadge(ok);
+          if (!ok) {
+            showError('API Key 無法保存（目前可能是 data: 開啟）。請改用 HTTPS 描述檔。');
+          }
+          return ok;
+        } catch (e) {
+          showError('API Key 無法保存：' + (e.message || '瀏覽器限制'));
+          showKeySavedBadge(false);
+          return false;
+        }
+      }
+
+      function clearApiKey() {
+        try {
+          localStorage.removeItem(API_KEY_STORAGE);
+          localStorage.removeItem('gemini_api_key_temp');
+          localStorage.removeItem('gemini_api_key_html');
+          sessionStorage.removeItem('gemini_api_key_temp');
+        } catch (e) {}
+        apiKeyInput.value = '';
+        showKeySavedBadge(false);
+      }
+
+      var restoredKey = loadSavedApiKey();
+      if (restoredKey) {
+        apiKeyInput.value = restoredKey;
+        saveApiKey(restoredKey);
+      }
+
+      clearKeyBtn.addEventListener('click', function () {
+        clearApiKey();
+        hideError();
+      });
+
+      apiKeyInput.addEventListener('change', function () {
+        if (apiKeyInput.value.trim()) saveApiKey(apiKeyInput.value);
+      });
+      apiKeyInput.addEventListener('blur', function () {
+        if (apiKeyInput.value.trim()) saveApiKey(apiKeyInput.value);
+      });
+
+      function updateUIStatus() {
+        sendTextBtn.disabled = isTranslating || !manualInput.value.trim();
+
+        if (isSessionActive) {
+          apiKeyWrap.style.display = 'none';
+          welcomeScreen.style.display = 'none';
+          permHint.style.display = 'none';
+          voiceSelect.disabled = true;
+          styleSelect.disabled = true;
+          targetLangSelect.disabled = true;
+
+          if (isTranslating || isPlayingAudio) {
+            statusBadge.className = 'flex items-center text-xs sm:text-sm font-medium px-2.5 py-1 rounded-full border shadow-sm text-purple-600 bg-purple-50 border-purple-200 whitespace-nowrap shrink-0';
+            statusBadge.innerHTML = isTranslating
+              ? '<i data-lucide="loader-2" class="w-4 h-4 mr-1.5 animate-spin"></i>翻譯中'
+              : '<i data-lucide="volume-2" class="w-4 h-4 mr-1.5 animate-pulse"></i>播放中';
+          } else if (isRecognizing) {
+            statusBadge.className = 'flex items-center text-xs sm:text-sm font-medium px-2.5 py-1 rounded-full border shadow-sm text-emerald-600 bg-emerald-50 border-emerald-200 whitespace-nowrap shrink-0';
+            statusBadge.innerHTML = '<span class="relative flex h-2.5 w-2.5 mr-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>聆聽中';
+          } else {
+            statusBadge.className = 'flex items-center text-xs sm:text-sm font-medium px-2.5 py-1 rounded-full border shadow-sm text-blue-600 bg-blue-50 border-blue-200 whitespace-nowrap shrink-0';
+            statusBadge.innerHTML = '語音就緒';
+          }
+
+          controlBtn.className = 'flex items-center justify-center gap-3 bg-red-500 hover:bg-red-600 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-all shadow-lg shadow-red-500/30 w-full max-w-sm animate-pulse';
+          controlBtn.innerHTML = '<i data-lucide="mic-off"></i><span>停止翻譯</span>';
+        } else if (isTranslating) {
+          welcomeScreen.style.display = 'none';
+          permHint.style.display = 'none';
+          statusBadge.className = 'flex items-center text-xs sm:text-sm font-medium text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 whitespace-nowrap shrink-0';
+          statusBadge.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 mr-1.5 animate-spin"></i>翻譯中';
+          controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-colors shadow-lg shadow-blue-600/30 w-full max-w-sm';
+          controlBtn.innerHTML = '<i data-lucide="mic"></i><span>開始語音翻譯</span>';
+        } else {
+          apiKeyWrap.style.display = 'flex';
+          voiceSelect.disabled = false;
+          styleSelect.disabled = false;
+          targetLangSelect.disabled = false;
+          statusBadge.className = 'flex items-center text-xs sm:text-sm font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200 whitespace-nowrap shrink-0';
+          statusBadge.innerHTML = '待機中';
+          controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-colors shadow-lg shadow-blue-600/30 w-full max-w-sm';
+          controlBtn.innerHTML = '<i data-lucide="mic"></i><span>開始語音翻譯</span>';
+        }
+        if (window.lucide) lucide.createIcons();
+      }
+
+      function stopCurrentAudioPlayback() {
+        if (currentAudioSource) {
+          try { currentAudioSource.onended = null; currentAudioSource.stop(); } catch (e) {}
+          currentAudioSource = null;
+        }
+        if ('speechSynthesis' in window) {
+          try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
+      }
+
+      function addTranscriptElement(inputText, outputText) {
+        transcriptIdCounter += 1;
+        var clipId = 'clip-' + transcriptIdCounter;
+        var div = document.createElement('div');
+        div.className = 'flex flex-col gap-2 mb-4 animate-fade-in';
+        div.dataset.clipId = clipId;
+        var displayInputText = inputText ? cn2tw(inputText) : '';
+        var displayOutputText = outputText ? cn2tw(outputText) : '';
+        var html = '';
+        if (displayInputText) {
+          html += '<div class="flex justify-end"><div class="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-sm"><p class="text-base leading-relaxed">' +
+            displayInputText.replace(/</g, '&lt;') + '</p></div></div>';
+        }
+        if (displayOutputText) {
+          html += '<div class="flex justify-start items-end gap-2 mt-1">' +
+            '<div class="bg-white border border-slate-200 text-slate-800 px-5 py-3 rounded-2xl rounded-tl-sm max-w-[85%] shadow-sm flex flex-col gap-1">' +
+            '<div class="flex items-center justify-between gap-2 mb-1">' +
+            '<div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 uppercase tracking-wider"><i data-lucide="languages" class="w-3 h-3"></i>Translation</div>' +
+            '<button type="button" data-replay="' + clipId + '" disabled title="重新播放" ' +
+            'class="replay-btn inline-flex items-center gap-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 disabled:pointer-events-none border border-blue-200 rounded-full px-2.5 py-1 transition shrink-0">' +
+            '<i data-lucide="rotate-cw" class="w-3 h-3"></i><span>重播</span></button>' +
+            '</div>' +
+            '<p class="text-base leading-relaxed font-medium">' + displayOutputText.replace(/</g, '&lt;') + '</p></div></div>';
+        }
+        div.innerHTML = html;
+        transcriptContainer.appendChild(div);
+        if (window.lucide) lucide.createIcons({ root: div });
+        transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+
+        var replayBtn = div.querySelector('[data-replay]');
+        if (replayBtn) {
+          replayBtn.addEventListener('click', function () {
+            replayClip(clipId);
+          });
+        }
+        return clipId;
+      }
+
+      function enableReplayButton(clipId, clip) {
+        if (!clipId || !clip) return;
+        audioClipStore[clipId] = clip;
+        var btn = document.querySelector('[data-replay="' + clipId + '"]');
+        if (btn) btn.disabled = false;
+      }
+
+      async function playAudioBuffer(audioBuffer) {
+        await unlockAudio();
+        stopCurrentAudioPlayback();
+        await new Promise(function (resolve) {
+          var source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioContext.destination);
+          source.onended = function () {
+            if (currentAudioSource === source) currentAudioSource = null;
+            resolve();
+          };
+          currentAudioSource = source;
+          source.start(0);
+        });
+      }
+
+      async function playSynthFallback(text, targetLangKey) {
+        if (!('speechSynthesis' in window)) return;
+        stopCurrentAudioPlayback();
+        await new Promise(function (resolve) {
+          var utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = langBcp47[targetLangKey] || 'en-US';
+          utterance.onend = resolve;
+          utterance.onerror = resolve;
+          var voices = window.speechSynthesis.getVoices();
+          var matched = voices.find(function (v) { return v.lang.indexOf(utterance.lang.slice(0, 2)) === 0; });
+          if (matched) utterance.voice = matched;
+          window.speechSynthesis.speak(utterance);
+        });
+      }
+
+      async function replayClip(clipId) {
+        var clip = audioClipStore[clipId];
+        if (!clip || isTranslating) return;
+        isPlayingAudio = true;
+        updateUIStatus();
+        stopRecognitionTemporarily();
+        try {
+          if (clip.kind === 'buffer') {
+            await playAudioBuffer(clip.buffer);
+          } else if (clip.kind === 'synth') {
+            await playSynthFallback(clip.text, clip.lang);
+          }
+        } catch (err) {
+          console.warn('replay failed', err);
+        } finally {
+          finishSpeaking();
+        }
+      }
+
+      function cleanTextForSpeech(text) {
+        if (!text) return '';
+        return text
+          .replace(/ครับ\/ค่ะ/g, 'ครับ')
+          .replace(/ค่ะ\/ครับ/g, 'ค่ะ')
+          .replace(/[\/\\()\[\]]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function decodeBase64(base64) {
+        var binaryString = atob(base64);
+        var bytes = new Uint8Array(binaryString.length);
+        for (var i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        return bytes;
+      }
+
+      function decodePcmToAudioBuffer(bytes, ctx, sampleRate) {
+        var int16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
+        var buffer = ctx.createBuffer(1, int16.length, sampleRate);
+        var channelData = buffer.getChannelData(0);
+        for (var i = 0; i < int16.length; i++) channelData[i] = int16[i] / 32768.0;
+        return buffer;
+      }
+
+      async function unlockAudio() {
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) throw new Error('此裝置不支援喇叭播放（Web Audio）。');
+        if (!audioContext) audioContext = new AudioCtx();
+        if (audioContext.state === 'suspended') await audioContext.resume();
+        var silent = audioContext.createBuffer(1, 1, 22050);
+        var src = audioContext.createBufferSource();
+        src.buffer = silent;
+        src.connect(audioContext.destination);
+        src.start(0);
+        if ('speechSynthesis' in window) {
+          try {
+            window.speechSynthesis.cancel();
+            var u = new SpeechSynthesisUtterance(' ');
+            u.volume = 0.01;
+            window.speechSynthesis.speak(u);
+          } catch (e) {}
+        }
+      }
+
+      async function playSpeechAudio(textToSpeak, targetLangKey) {
+        var cleanText = cleanTextForSpeech(textToSpeak);
+        if (!cleanText) return null;
+
+        isPlayingAudio = true;
+        updateUIStatus();
+        stopRecognitionTemporarily();
+
+        try {
+          var apiKey = apiKeyInput.value.trim();
+          var voiceName = voiceSelect.value;
+          var ttsUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=' + encodeURIComponent(apiKey);
+          var response = await fetch(ttsUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: cleanText }] }],
+              generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } },
+              },
+            }),
+          });
+
+          if (response.ok) {
+            var data = await response.json();
+            var base64Audio = data.candidates && data.candidates[0] && data.candidates[0].content &&
+              data.candidates[0].content.parts && data.candidates[0].content.parts[0] &&
+              data.candidates[0].content.parts[0].inlineData &&
+              data.candidates[0].content.parts[0].inlineData.data;
+            if (base64Audio) {
+              await unlockAudio();
+              var audioBuffer = decodePcmToAudioBuffer(decodeBase64(base64Audio), audioContext, 24000);
+              await playAudioBuffer(audioBuffer);
+              return { kind: 'buffer', buffer: audioBuffer };
+            }
+          }
+        } catch (err) {
+          console.warn('TTS fallback', err);
+        }
+
+        if ('speechSynthesis' in window) {
+          await playSynthFallback(cleanText, targetLangKey);
+          return { kind: 'synth', text: cleanText, lang: targetLangKey };
+        }
+        return null;
+      }
+
+      function finishSpeaking() {
+        isPlayingAudio = false;
+        updateUIStatus();
+        if (isSessionActive) {
+          clearTimeout(restartTimer);
+          restartTimer = setTimeout(function () {
+            if (isSessionActive && !isPlayingAudio && !isTranslating) startSpeechRecognition();
+          }, 300);
+        }
+      }
+
+      async function handleTranslateText(rawText) {
+        var trimmed = (rawText || '').trim();
+        if (!trimmed || isTranslating) return;
+
+        var apiKey = apiKeyInput.value.trim();
+        if (!apiKey) {
+          showError('請先輸入您的 Gemini API Key。');
+          return;
+        }
+        saveApiKey(apiKey);
+
+        isTranslating = true;
+        // 先暫停辨識，避免翻譯／播報期間又觸發；保留 micStream 以免 iOS 反覆詢問權限
+        stopRecognitionTemporarily();
+        hideError();
+        welcomeScreen.style.display = 'none';
+        permHint.style.display = 'none';
+        updateUIStatus();
+
+        var targetLang = targetLangSelect.value;
+        var selectedStyle = styleSelect.value;
+        var prompt = 'You are a real-time bi-directional translator between Taiwanese Mandarin (Traditional Chinese) and ' + targetLang + '.\n' +
+          'Strict Rules:\n' +
+          '1. If the input is in Chinese, translate it directly into ' + targetLang + ' in a ' + selectedStyle + ' manner.\n' +
+          '2. If the input is in ' + targetLang + ', translate it directly into Taiwanese Mandarin (Traditional Chinese 繁體中文) in a ' + selectedStyle + ' manner.\n' +
+          '3. Output ONLY the raw translated text. Do NOT explain, chat, or add quotation marks.\n' +
+          '4. FOR THAI: Translate into natural polite spoken Thai ending with ครับ or ค่ะ. Never output slashes like ครับ/ค่ะ.\n\n' +
+          'Input to translate:\n"' + trimmed + '"';
+
+        try {
+          await unlockAudio();
+          var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + encodeURIComponent(apiKey);
+          var res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 250 },
+            }),
+          });
+          if (!res.ok) {
+            var errorData = await res.json().catch(function () { return {}; });
+            throw new Error((errorData.error && errorData.error.message) || ('HTTP ' + res.status));
+          }
+          var result = await res.json();
+          var rawOutput = (result.candidates && result.candidates[0] && result.candidates[0].content &&
+            result.candidates[0].content.parts && result.candidates[0].content.parts[0] &&
+            result.candidates[0].content.parts[0].text) || '';
+          var translatedOutput = cn2tw(rawOutput.trim());
+          if (translatedOutput) {
+            var clipId = addTranscriptElement(cn2tw(trimmed), translatedOutput);
+            try {
+              var clip = await playSpeechAudio(translatedOutput, targetLang);
+              enableReplayButton(clipId, clip);
+            } finally {
+              finishSpeaking();
+            }
+          }
+        } catch (err) {
+          console.error(err);
+          showError('翻譯失敗：' + (err.message || '請確認網路或 API Key'));
+          finishSpeaking();
+        } finally {
+          isTranslating = false;
+          updateUIStatus();
+        }
+      }
+
+      function stopRecognitionTemporarily() {
+        clearTimeout(silenceTimer);
+        clearTimeout(restartTimer);
+        if (recognition) {
+          try {
+            recognition.onend = null;
+            recognition.onresult = null;
+            recognition.onerror = null;
+            recognition.stop();
+          } catch (e) {
+            try { recognition.abort(); } catch (e2) {}
+          }
+          recognition = null;
+        }
+        isRecognizing = false;
+      }
+
+      function releaseMicStream() {
+        if (micKeepAliveNode) {
+          try { micKeepAliveNode.disconnect(); } catch (e) {}
+          micKeepAliveNode = null;
+        }
+        if (micStream) {
+          micStream.getTracks().forEach(function (t) {
+            try { t.stop(); } catch (e) {}
+          });
+          micStream = null;
+        }
+      }
+
+      async function ensureMicStream() {
+        if (micStream && micStream.getAudioTracks().some(function (t) { return t.readyState === 'live'; })) {
+          return micStream;
+        }
+        releaseMicStream();
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('此瀏覽器不支援麥克風。');
+        }
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        // 整個工作階段維持 live 音軌，避免每次重啟 SpeechRecognition 時 iOS 再問一次權限
+        try {
+          await unlockAudio();
+          var source = audioContext.createMediaStreamSource(micStream);
+          var mute = audioContext.createGain();
+          mute.gain.value = 0;
+          source.connect(mute);
+          mute.connect(audioContext.destination);
+          micKeepAliveNode = mute;
+        } catch (e) {}
+        return micStream;
+      }
+
+      function startSpeechRecognition() {
+        var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          showError('此 Safari／瀏覽器不支援語音辨識，請改用文字輸入。');
+          return;
+        }
+        if (isPlayingAudio || isTranslating || !isSessionActive) return;
+        if (isRecognizing && recognition) return;
+
+        try {
+          stopRecognitionTemporarily();
+          recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'zh-TW';
+
+          recognition.onstart = function () {
+            isRecognizing = true;
+            updateUIStatus();
+          };
+
+          recognition.onresult = function (event) {
+            if (isPlayingAudio || isTranslating) return;
+            var interim = '';
+            var finalPhrase = '';
+            for (var i = event.resultIndex; i < event.results.length; i++) {
+              var chunk = event.results[i][0].transcript;
+              if (event.results[i].isFinal) finalPhrase += chunk;
+              else interim += chunk;
+            }
+            if (finalPhrase.trim()) {
+              clearTimeout(silenceTimer);
+              handleTranslateText(finalPhrase.trim());
+            } else if (interim.trim()) {
+              clearTimeout(silenceTimer);
+              silenceTimer = setTimeout(function () {
+                if (interim.trim() && !isTranslating && !isPlayingAudio) {
+                  handleTranslateText(interim.trim());
+                }
+              }, 900);
+            }
+          };
+
+          recognition.onerror = function (event) {
+            if (event.error === 'no-speech' || event.error === 'aborted') return;
+            if (event.error === 'not-allowed') {
+              showError('麥克風權限被拒絕。請到「設定 → Safari → 麥克風」允許，並選「允許」而非每次詢問。');
+              stopSession();
+            }
+          };
+
+          recognition.onend = function () {
+            isRecognizing = false;
+            updateUIStatus();
+            if (isSessionActive && !isPlayingAudio && !isTranslating) {
+              clearTimeout(restartTimer);
+              restartTimer = setTimeout(function () {
+                if (isSessionActive && !isPlayingAudio && !isTranslating) {
+                  try { startSpeechRecognition(); } catch (e) {}
+                }
+              }, 250);
+            }
+          };
+
+          recognition.start();
+        } catch (e) {
+          showError('無法啟動語音辨識：' + (e.message || e));
+        }
+      }
+
+      async function startSession() {
+        var apiKey = apiKeyInput.value.trim();
+        if (!apiKey) {
+          showError('請先輸入您的 Gemini API Key。');
+          return;
+        }
+        saveApiKey(apiKey);
+        hideError();
+
+        if (location.protocol === 'data:') {
+          showError('目前是 data: 舊描述檔，語音無法穩定運作。請安裝新的 HTTPS 描述檔。');
+          return;
+        }
+        if (!window.isSecureContext) {
+          showError('麥克風需要 HTTPS。請用 Safari 開啟 HTTPS 網址後再試。');
+          return;
+        }
+
+        try {
+          await unlockAudio();
+          await ensureMicStream();
+        } catch (err) {
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            showError('麥克風權限被拒絕。請到「設定 → Safari → 麥克風」允許。');
+          } else {
+            showError(err.message || '無法啟用麥克風／喇叭');
+          }
+          return;
+        }
+
+        isSessionActive = true;
+        updateUIStatus();
+        startSpeechRecognition();
+      }
+
+      function stopSession() {
+        isSessionActive = false;
+        isRecognizing = false;
+        clearTimeout(silenceTimer);
+        clearTimeout(restartTimer);
+        stopRecognitionTemporarily();
+        releaseMicStream();
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        updateUIStatus();
+      }
+
+      controlBtn.addEventListener('click', function () {
+        try {
+          if (isSessionActive) stopSession();
+          else startSession();
+        } catch (err) {
+          showError('按鈕錯誤：' + (err.message || err));
+        }
+      });
+
+      manualInput.addEventListener('input', function () {
+        sendTextBtn.disabled = isTranslating || !manualInput.value.trim();
+      });
+
+      textInputForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var text = manualInput.value.trim();
+        if (!text || isTranslating) return;
+        manualInput.value = '';
+        sendTextBtn.disabled = true;
+        handleTranslateText(text);
+      });
+
+      updateUIStatus();
+    })();
+  </script>
+</body>
+</html>
