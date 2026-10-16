@@ -236,10 +236,10 @@
         targetLangSelect.disabled = true;
         statusBadge.className = 'flex items-center text-sm font-medium text-amber-500 bg-amber-50 px-3 py-1 rounded-full border border-amber-200';
         statusBadge.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 mr-2 animate-spin"></i>連線中...';
-        controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-400 text-white rounded-full px-8 py-4 text-lg font-semibold cursor-not-allowed shadow-lg w-full max-w-sm';
-        btnIcon.setAttribute('data-lucide', 'loader-2');
-        btnIcon.classList.add('animate-spin');
-        btnText.textContent = '連線中...';
+        
+        // 連線中：保持靜止的麥克風圖示，無動畫
+        controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-400 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold cursor-wait shadow-lg w-full max-w-sm';
+        controlBtn.innerHTML = '<i data-lucide="mic"></i><span>連線中...</span>';
       } else if (isSessionActive) {
         apiKeyInput.style.display = 'none';
         welcomeScreen.style.display = 'none';
@@ -256,10 +256,9 @@
           statusBadge.innerHTML = '<span class="relative flex h-2.5 w-2.5 mr-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>聆聽中...';
         }
 
-        controlBtn.className = 'flex items-center justify-center gap-3 bg-red-500 hover:bg-red-600 text-white rounded-full px-8 py-4 text-lg font-semibold transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-red-500/30 w-full max-w-sm animate-pulse';
-        btnIcon.classList.remove('animate-spin');
-        btnIcon.setAttribute('data-lucide', 'mic-off');
-        btnText.textContent = '停止翻譯';
+        // 即時偵測中：按鈕變成紅色並加入呼吸燈動畫 (animate-pulse)
+        controlBtn.className = 'flex items-center justify-center gap-3 bg-red-500 hover:bg-red-600 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-all shadow-lg shadow-red-500/30 w-full max-w-sm animate-pulse';
+        controlBtn.innerHTML = '<i data-lucide="mic-off"></i><span>停止翻譯</span>';
       } else {
         apiKeyInput.style.display = 'block';
         voiceSelect.disabled = false;
@@ -267,10 +266,10 @@
         targetLangSelect.disabled = false;
         statusBadge.className = 'flex items-center text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200';
         statusBadge.innerHTML = '待機中';
-        controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-4 text-lg font-semibold transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-blue-600/30 w-full max-w-sm';
-        btnIcon.classList.remove('animate-spin');
-        btnIcon.setAttribute('data-lucide', 'mic');
-        btnText.textContent = '開始語音翻譯';
+        
+        // 待機狀態：保持靜止，移除縮放等干擾動畫
+        controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-colors shadow-lg shadow-blue-600/30 w-full max-w-sm';
+        controlBtn.innerHTML = '<i data-lucide="mic"></i><span>開始語音翻譯</span>';
       }
       lucide.createIcons();
     }
