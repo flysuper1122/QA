@@ -304,10 +304,13 @@
     // 本輪是否為手動文字輸入（手動輸入不需校正）
     let currentInputIsManual = false;
 
-    // 校正右側轉錄用的文字模型
-    const VERIFY_MODEL = 'gemini-flash-latest';
+    // 校正右側轉錄用的文字模型（選用輕量模型以降低延遲）
+    const VERIFY_MODEL = 'gemini-flash-lite-latest';
+    const VERIFY_TIMEOUT_MS = 8000;
     let aiClient = null;
-    let transcriptRenderQueue = Promise.resolve();
+
+    // 本輪正在串流顯示的逐字稿區塊
+    let liveTranscriptEl = null;
 
     const savedKey = localStorage.getItem('gemini_api_key_html');
     if (savedKey) apiKeyInput.value = savedKey;
@@ -449,7 +452,7 @@
       const res = await withTimeout(aiClient.models.generateContent({
         model: VERIFY_MODEL,
         contents: `Translate the following text into Traditional Chinese as used in Taiwan. Reply with only the translation.\n\n${text}`,
-      }), 15000);
+      }), VERIFY_TIMEOUT_MS);
       return (res.text || '').trim();
     }
 
@@ -478,7 +481,7 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
             model: VERIFY_MODEL,
             contents: prompt,
             config: { responseMimeType: 'application/json' },
-          }), 15000);
+          }), VERIFY_TIMEOUT_MS);
           const result = JSON.parse(res.text || '{}');
           if (result.match !== false) return rawInput;
           chinese = (result.chinese || '').trim();
@@ -491,69 +494,72 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
       }
     }
 
-    function addTranscriptElement(id, inputText, outputText, audioBuffers = []) {
+    function createTranscriptElement(id) {
       const div = document.createElement('div');
       div.id = `transcript-${id}`;
+      div.dataset.transcriptId = id;
       div.className = 'flex flex-col gap-2 mb-4 animate-fade-in';
-      
-      // 無論輸入或輸出，都經過繁體轉換過濾 (英文不會受影響)
-      const displayInputText = inputText ? toDisplayText(inputText) : '';
-      const displayOutputText = outputText ? toDisplayText(outputText) : '';
-      const hasReplay = audioBuffers.length > 0;
-      
-      if (hasReplay) {
-        transcriptAudioMap.set(id, audioBuffers);
-      }
-      
-      let htmlContent = '';
-      
-      if (displayInputText) {
-        htmlContent += `
-          <div class="flex justify-end">
-            <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-sm">
-              <p class="text-base leading-relaxed">${displayInputText}</p>
-            </div>
+      div.innerHTML = `
+        <div class="input-bubble hidden justify-end">
+          <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-sm">
+            <p class="input-text text-base leading-relaxed"></p>
           </div>
-        `;
-      }
-      
-      if (displayOutputText) {
-        htmlContent += `
-          <div class="flex justify-start items-end gap-2 mt-1">
-            <div class="bg-white border border-slate-200 text-slate-800 px-5 py-3 rounded-2xl rounded-tl-sm max-w-[85%] shadow-sm flex flex-col gap-1">
-               <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">
-                 <i data-lucide="languages" class="w-3 h-3"></i>
-                 Translation
-               </div>
-              <p class="text-base leading-relaxed font-medium">${displayOutputText}</p>
-            </div>
-            ${hasReplay ? `
-            <button
-              type="button"
-              class="replay-audio-btn shrink-0 mb-1 p-2 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700 transition-colors shadow-sm"
-              data-transcript-id="${id}"
-              title="重新播放語音"
-              aria-label="重新播放語音"
-            >
-              <i data-lucide="volume-2" class="w-4 h-4"></i>
-            </button>
-            ` : ''}
+        </div>
+        <div class="output-bubble hidden justify-start items-end gap-2 mt-1">
+          <div class="bg-white border border-slate-200 text-slate-800 px-5 py-3 rounded-2xl rounded-tl-sm max-w-[85%] shadow-sm flex flex-col gap-1">
+             <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">
+               <i data-lucide="languages" class="w-3 h-3"></i>
+               Translation
+             </div>
+            <p class="output-text text-base leading-relaxed font-medium"></p>
           </div>
-        `;
-      }
-      
-      div.innerHTML = htmlContent;
+          <button
+            type="button"
+            class="replay-audio-btn hidden shrink-0 mb-1 p-2 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700 transition-colors shadow-sm"
+            title="重新播放語音"
+            aria-label="重新播放語音"
+          >
+            <i data-lucide="volume-2" class="w-4 h-4"></i>
+          </button>
+        </div>
+      `;
       transcriptContainer.appendChild(div);
       lucide.createIcons({ root: div });
+      div.querySelector('.replay-audio-btn').addEventListener('click', () => replayTranscriptAudio(id));
+      return div;
+    }
 
-      if (hasReplay) {
-        const replayBtn = div.querySelector('.replay-audio-btn');
-        if (replayBtn) {
-          replayBtn.addEventListener('click', () => replayTranscriptAudio(id));
-        }
-      }
-      
+    // which 為 'input'（右側）或 'output'（左側）；文字為空時隱藏該泡泡
+    function setBubbleText(div, which, text, pending = false) {
+      const bubble = div.querySelector(`.${which}-bubble`);
+      const textEl = bubble.querySelector(`.${which}-text`);
+      textEl.textContent = text;
+      textEl.classList.toggle('animate-pulse', pending);
+      bubble.classList.toggle('hidden', !text);
+      bubble.classList.toggle('flex', !!text);
       transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+    }
+
+    function ensureLiveTranscript() {
+      if (!liveTranscriptEl) {
+        transcriptIdCounter++;
+        liveTranscriptEl = createTranscriptElement(transcriptIdCounter);
+      }
+      return liveTranscriptEl;
+    }
+
+    // 指定一般語言時轉錄已鎖定語言，不需校正；自動偵測或方言才需要
+    function inputNeedsVerification() {
+      return activeSourceLang === 'auto' || !langCodeMap[activeSourceLang];
+    }
+
+    function renderLiveInput() {
+      const div = ensureLiveTranscript();
+      if (currentInputIsManual || !inputNeedsVerification()) {
+        setBubbleText(div, 'input', toDisplayText(currentInputText));
+      } else {
+        setBubbleText(div, 'input', '…', true);
+      }
     }
 
     async function replayTranscriptAudio(id) {
@@ -726,9 +732,13 @@ ${closing}`;
             onmessage: async (message) => {
               if (message.serverContent?.inputTranscription) {
                 currentInputText += message.serverContent.inputTranscription.text;
+                if (currentInputText.trim()) renderLiveInput();
               }
               if (message.serverContent?.outputTranscription) {
                 currentOutputText += message.serverContent.outputTranscription.text;
+                if (currentOutputText.trim()) {
+                  setBubbleText(ensureLiveTranscript(), 'output', toDisplayText(currentOutputText));
+                }
               }
 
               const base64EncodedAudioString = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
@@ -766,26 +776,32 @@ ${closing}`;
               
               if (message.serverContent?.turnComplete) {
                  if (currentInputText.trim() || currentOutputText.trim()) {
-                    transcriptIdCounter++;
-                    const id = transcriptIdCounter;
+                    const div = ensureLiveTranscript();
+                    const id = Number(div.dataset.transcriptId);
                     const rawInput = currentInputText;
                     const outputText = currentOutputText;
-                    const audioBuffers = currentTurnAudioBuffers.slice();
-                    // 指定一般語言時轉錄已鎖定語言，不需校正；自動偵測或方言才需要
-                    const needsVerify = activeSourceLang === 'auto' || !langCodeMap[activeSourceLang];
-                    const shouldVerify = needsVerify && !currentInputIsManual && outputText.trim() !== '';
-                    const languageHint = activeSourceLang === 'auto'
-                      ? ''
-                      : `The speaker used either ${activeSourceLang} or ${targetLangSelect.value}. ${activeSourceLang} has no standard written form here, so its transcript is unreliable.`;
-                    const inputPromise = shouldVerify
-                      ? resolveInputText(rawInput, outputText, languageHint)
-                      : Promise.resolve(rawInput);
 
-                    // 左右泡泡等右側校正完成後一起出現，並依回合順序插入
-                    transcriptRenderQueue = transcriptRenderQueue
-                      .then(() => inputPromise)
-                      .then((finalInput) => addTranscriptElement(id, finalInput, outputText, audioBuffers));
+                    if (currentTurnAudioBuffers.length > 0) {
+                      transcriptAudioMap.set(id, currentTurnAudioBuffers.slice());
+                      div.querySelector('.replay-audio-btn').classList.remove('hidden');
+                    }
+
+                    const shouldVerify = inputNeedsVerification() && !currentInputIsManual && outputText.trim() !== '';
+                    if (shouldVerify) {
+                      setBubbleText(div, 'input', '…', true);
+                      const languageHint = activeSourceLang === 'auto'
+                        ? ''
+                        : `The speaker used either ${activeSourceLang} or ${targetLangSelect.value}. ${activeSourceLang} has no standard written form here, so its transcript is unreliable.`;
+                      resolveInputText(rawInput, outputText, languageHint).then((finalInput) => {
+                        setBubbleText(div, 'input', finalInput.trim() ? toDisplayText(finalInput) : '');
+                      });
+                    } else {
+                      setBubbleText(div, 'input', rawInput.trim() ? toDisplayText(rawInput) : '');
+                    }
+                 } else if (liveTranscriptEl) {
+                    liveTranscriptEl.remove();
                  }
+                 liveTranscriptEl = null;
                  currentInputText = '';
                  currentOutputText = '';
                  currentTurnAudioBuffers = [];
@@ -851,6 +867,14 @@ ${closing}`;
       }
       audioSources.clear();
       
+      if (liveTranscriptEl) {
+        if (!currentInputText.trim() && !currentOutputText.trim()) {
+          liveTranscriptEl.remove();
+        } else {
+          setBubbleText(liveTranscriptEl, 'input', currentInputText.trim() ? toDisplayText(currentInputText) : '');
+        }
+      }
+      liveTranscriptEl = null;
       currentInputText = '';
       currentOutputText = '';
       currentTurnAudioBuffers = [];
@@ -876,6 +900,7 @@ ${closing}`;
       currentInputText = text;
       currentInputIsManual = true;
       manualTextInput.value = '';
+      renderLiveInput();
 
       try {
         const s = await session;
