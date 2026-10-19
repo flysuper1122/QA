@@ -398,7 +398,20 @@
       return encodeBase64(new Uint8Array(buffer));
     }
 
-    // 先讓 AI 從原音判斷輸入語言；台語等方言或無法辨識的語言改以繁體中文顯示
+    // 含漢字且沒有日文假名、韓文，視為中文
+    function isChineseText(text) {
+      return /[\u4e00-\u9fff]/.test(text) && !/[\u3040-\u30ff\uac00-\ud7af]/.test(text);
+    }
+
+    async function translateToChinese(text) {
+      const res = await aiClient.models.generateContent({
+        model: LANG_DETECT_MODEL,
+        contents: `Translate the following text into Traditional Chinese as used in Taiwan. Reply with only the translation.\n\n${text}`,
+      });
+      return (res.text || '').trim();
+    }
+
+    // 先讓 AI 從原音判斷輸入語言；台語等方言或無法辨識的語言，改用 AI 已譯出的意思轉成中文回填
     async function detectInputLanguage(id, micChunks, rawInput, outputText) {
       const bubble = document.querySelector(`#transcript-${id} .input-bubble`);
       if (!bubble) return;
@@ -418,15 +431,14 @@
         return;
       }
 
-      const prompt = `Listen to the audio and first identify the language the speaker is using.
-- If it is a standard language with a common written form (e.g. Mandarin Chinese, English, Japanese, Korean, Spanish), transcribe exactly what was said in that language's own script. Write Mandarin in Traditional Chinese as used in Taiwan.
-- If it is Taiwanese Hokkien (台語), Hakka, Cantonese, another dialect, or a language you cannot identify, write the meaning in Traditional Chinese as used in Taiwan.
+      const prompt = `Listen to the audio and identify the language the speaker is using.
+- If it is a standard language with a common written form (e.g. Mandarin Chinese, English, Japanese, Korean, Spanish), set "standard" to true and transcribe exactly what was said in that language's own script in "text". Write Mandarin in Traditional Chinese as used in Taiwan.
+- If it is Taiwanese Hokkien (台語), Hakka, Cantonese, another dialect, or a language you cannot identify, set "standard" to false and leave "text" empty.
 Ignore silence and background noise.
 
 Reference speech-recognition transcript (may be inaccurate): """${rawInput}"""
-Reference translation produced by the interpreter: """${outputText}"""
 
-Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文, 日文, 台語, 不明語言>", "text": "<text to display>"}`;
+Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文, 日文, 台語, 不明語言>", "standard": <true|false>, "text": "<transcript or empty>"}`;
 
       try {
         const res = await aiClient.models.generateContent({
@@ -441,7 +453,17 @@ Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文,
           config: { responseMimeType: 'application/json' },
         });
         const result = JSON.parse(res.text || '{}');
-        const text = (result.text || '').trim();
+        let text = (result.text || '').trim();
+
+        if (result.standard === false || !text) {
+          const translation = outputText.trim();
+          if (!translation) {
+            fallback();
+            return;
+          }
+          text = isChineseText(translation) ? translation : await translateToChinese(translation);
+        }
+
         if (!text) {
           fallback();
           return;
