@@ -43,6 +43,9 @@
     </div>
     
     <div class="flex items-center gap-2 md:gap-3">
+      <!-- 輸入語言選擇（選項由程式依目標語言清單產生，另加方言） -->
+      <select id="sourceLangSelect" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-slate-700"></select>
+
       <!-- 目標語言選擇 -->
       <select id="targetLangSelect" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-slate-700">
         <optgroup label="常用">
@@ -116,7 +119,7 @@
       </div>
       <p class="text-lg text-center leading-relaxed">
         點擊下方按鈕開始對話。<br/>
-        可用 <span class="font-medium text-slate-600">任何語言</span> 說話，自動翻譯成 <span id="welcomeTargetLang" class="font-medium text-slate-600">英文</span>。
+        可用 <span id="welcomeSourceLang" class="font-medium text-slate-600">任何語言</span> 說話，自動翻譯成 <span id="welcomeTargetLang" class="font-medium text-slate-600">英文</span>。
       </p>
     </div>
 
@@ -178,6 +181,8 @@
     const targetLangSelect = document.getElementById('targetLangSelect');
     const headerLangBadge = document.getElementById('headerLangBadge');
     const welcomeTargetLang = document.getElementById('welcomeTargetLang');
+    const sourceLangSelect = document.getElementById('sourceLangSelect');
+    const welcomeSourceLang = document.getElementById('welcomeSourceLang');
     const textInputBar = document.getElementById('textInputBar');
     const manualTextInput = document.getElementById('manualTextInput');
     const sendTextBtn = document.getElementById('sendTextBtn');
@@ -203,14 +208,76 @@
       'Portuguese': '葡萄牙文',
       'Russian': '俄文',
       'Dutch': '荷蘭文',
-      'Polish': '波蘭文'
+      'Polish': '波蘭文',
+      'Taiwanese Hokkien': '台語',
+      'Taiwanese Hakka': '客語',
+      'Cantonese': '粵語',
+      'auto': '自動偵測'
     };
 
-    targetLangSelect.addEventListener('change', (e) => {
-      const langZh = langNameMap[e.target.value];
-      welcomeTargetLang.textContent = langZh;
-      headerLangBadge.textContent = '翻譯成' + langZh;
-    });
+    const CHINESE_LANG = 'Taiwanese Mandarin (Traditional Chinese)';
+
+    // 語音轉錄用的 BCP-47 代碼；方言沒有對應代碼，轉錄改為自動偵測
+    const langCodeMap = {
+      'English': 'en-US',
+      'Taiwanese Mandarin (Traditional Chinese)': 'zh-TW',
+      'Japanese': 'ja-JP',
+      'Korean': 'ko-KR',
+      'Thai': 'th-TH',
+      'Vietnamese': 'vi-VN',
+      'Indonesian': 'id-ID',
+      'Malay': 'ms-MY',
+      'Filipino': 'fil-PH',
+      'Hindi': 'hi-IN',
+      'Arabic': 'ar-SA',
+      'Turkish': 'tr-TR',
+      'Spanish': 'es-ES',
+      'French': 'fr-FR',
+      'German': 'de-DE',
+      'Italian': 'it-IT',
+      'Portuguese': 'pt-BR',
+      'Russian': 'ru-RU',
+      'Dutch': 'nl-NL',
+      'Polish': 'pl-PL'
+    };
+
+    // 方言：AI 回譯給說方言的人時改用華語
+    const DIALECTS = ['Taiwanese Hokkien', 'Taiwanese Hakka', 'Cantonese'];
+    const DIALECT_REPLY_LANG = {
+      'Taiwanese Hokkien': CHINESE_LANG,
+      'Taiwanese Hakka': CHINESE_LANG,
+    };
+
+    function buildSourceLangOptions() {
+      sourceLangSelect.appendChild(new Option('輸入：自動偵測', 'auto', true, true));
+      const groups = [...targetLangSelect.querySelectorAll('optgroup')];
+      const addGroup = (label, values) => {
+        const group = document.createElement('optgroup');
+        group.label = label;
+        for (const value of values) group.appendChild(new Option('輸入：' + langNameMap[value], value));
+        sourceLangSelect.appendChild(group);
+      };
+      groups.forEach((g, i) => {
+        addGroup(g.label, [...g.querySelectorAll('option')].map((o) => o.value));
+        if (i === 0) addGroup('方言', DIALECTS);
+      });
+    }
+
+    function updateLangLabels() {
+      const sourceZh = langNameMap[sourceLangSelect.value];
+      const targetZh = langNameMap[targetLangSelect.value];
+      const isAuto = sourceLangSelect.value === 'auto';
+      welcomeSourceLang.textContent = isAuto ? '任何語言' : sourceZh;
+      welcomeTargetLang.textContent = targetZh;
+      headerLangBadge.textContent = isAuto ? '翻譯成' + targetZh : `${sourceZh} → ${targetZh}`;
+    }
+
+    buildSourceLangOptions();
+    sourceLangSelect.addEventListener('change', updateLangLabels);
+    targetLangSelect.addEventListener('change', updateLangLabels);
+
+    // 本次連線使用的輸入語言（連線中選單會鎖定）
+    let activeSourceLang = 'auto';
 
     // 狀態變數
     let isSessionActive = false;
@@ -240,6 +307,7 @@
     // 校正右側轉錄用的文字模型
     const VERIFY_MODEL = 'gemini-flash-latest';
     let aiClient = null;
+    let transcriptRenderQueue = Promise.resolve();
 
     const savedKey = localStorage.getItem('gemini_api_key_html');
     if (savedKey) apiKeyInput.value = savedKey;
@@ -303,6 +371,7 @@
         voiceSelect.disabled = true;
         styleSelect.disabled = true;
         targetLangSelect.disabled = true;
+        sourceLangSelect.disabled = true;
         textInputBar.classList.add('hidden');
         textInputBar.classList.remove('flex');
         manualTextInput.disabled = true;
@@ -319,6 +388,7 @@
         voiceSelect.disabled = true;
         styleSelect.disabled = true;
         targetLangSelect.disabled = true;
+        sourceLangSelect.disabled = true;
         textInputBar.classList.remove('hidden');
         textInputBar.classList.add('flex');
         manualTextInput.disabled = false;
@@ -341,6 +411,7 @@
         voiceSelect.disabled = false;
         styleSelect.disabled = false;
         targetLangSelect.disabled = false;
+        sourceLangSelect.disabled = false;
         textInputBar.classList.add('hidden');
         textInputBar.classList.remove('flex');
         manualTextInput.disabled = true;
@@ -382,11 +453,9 @@
       return (res.text || '').trim();
     }
 
-    // 右側先顯示原始轉錄；若轉錄與左側翻譯意思不符（如台語被誤聽），改用左側翻譯的中文意思回填
-    async function verifyInputText(id, rawInput, outputText) {
-      const bubble = document.querySelector(`#transcript-${id} .input-bubble`);
-      if (!bubble || !aiClient) return;
-      const textEl = bubble.querySelector('.input-text');
+    // 決定右側要顯示的文字：轉錄與左側翻譯意思不符（如台語被誤聽）時，改用左側翻譯的中文意思；失敗時回傳原始轉錄
+    async function resolveInputText(rawInput, outputText, languageHint = '') {
+      if (!aiClient) return rawInput;
       const translation = outputText.trim();
       const translationInChinese = () =>
         isChineseText(translation) ? translation : translateToChinese(translation);
@@ -397,6 +466,7 @@
           chinese = await translationInChinese();
         } else {
           const prompt = `A live interpreter app shows a speech-recognition transcript of what the speaker said, next to the interpreter's translation. The translation is reliable. The transcript is often wrong for dialects such as Taiwanese Hokkien, which gets mis-transcribed as unrelated Mandarin characters (e.g. "給那個弟弟進喝" for "今仔日天氣真好", meaning "Today's weather is very good").
+${languageHint}
 
 Transcript: """${rawInput}"""
 Translation: """${translation}"""
@@ -410,23 +480,18 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
             config: { responseMimeType: 'application/json' },
           }), 15000);
           const result = JSON.parse(res.text || '{}');
-          if (result.match !== false) return;
+          if (result.match !== false) return rawInput;
           chinese = (result.chinese || '').trim();
           if (!isChineseText(chinese)) chinese = await translationInChinese();
         }
-
-        if (chinese) {
-          textEl.textContent = toDisplayText(chinese);
-        } else if (!rawInput.trim()) {
-          bubble.remove();
-        }
+        return chinese || rawInput;
       } catch (err) {
         console.error('右側文字校正失敗：', err);
-        if (!rawInput.trim()) bubble.remove();
+        return rawInput;
       }
     }
 
-    function addTranscriptElement(id, inputText, outputText, audioBuffers = [], verifying = false) {
+    function addTranscriptElement(id, inputText, outputText, audioBuffers = []) {
       const div = document.createElement('div');
       div.id = `transcript-${id}`;
       div.className = 'flex flex-col gap-2 mb-4 animate-fade-in';
@@ -442,11 +507,11 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
       
       let htmlContent = '';
       
-      if (displayInputText || verifying) {
+      if (displayInputText) {
         htmlContent += `
-          <div class="input-bubble flex justify-end">
+          <div class="flex justify-end">
             <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-sm">
-              <p class="input-text text-base leading-relaxed">${displayInputText || '…'}</p>
+              <p class="text-base leading-relaxed">${displayInputText}</p>
             </div>
           </div>
         `;
@@ -536,7 +601,12 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
         showError('請先輸入您的 Gemini API Key。');
         return;
       }
+      if (sourceLangSelect.value === targetLangSelect.value) {
+        showError('輸入語言與目標語言不能相同。');
+        return;
+      }
       localStorage.setItem('gemini_api_key_html', apiKey);
+      activeSourceLang = sourceLangSelect.value;
       
       hideError();
       isConnecting = true;
@@ -581,17 +651,38 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
         const selectedVoice = voiceSelect.value;
         const selectedStyle = styleSelect.value;
         const targetLang = targetLangSelect.value;
-        
-        // 輸入語音不限語種，一律翻譯成選定的目標語言；說的就是目標語言時改譯成備用語言
-        const chineseLang = 'Taiwanese Mandarin (Traditional Chinese)';
-        const fallbackLang = targetLang === chineseLang ? 'English' : chineseLang;
-        const instruction = `You are a highly skilled real-time interpreter.
+        const sourceLang = activeSourceLang;
+        const closing = 'Do not answer questions, do not hold a conversation, do not add any extra commentary. Just listen and output the exact translation.';
+
+        let instruction;
+        if (sourceLang === 'auto') {
+          // 輸入語音不限語種，一律翻譯成選定的目標語言；說的就是目標語言時改譯成備用語言
+          const fallbackLang = targetLang === CHINESE_LANG ? 'English' : CHINESE_LANG;
+          instruction = `You are a highly skilled real-time interpreter.
 The user may speak in ANY language. Automatically detect the spoken language.
 
 If the user speaks any language other than ${targetLang}, translate it exactly into ${targetLang} and speak the ${targetLang} translation ${selectedStyle}.
 If the user speaks ${targetLang}, translate it exactly into ${fallbackLang} and speak the ${fallbackLang} translation ${selectedStyle}.
 
-Do not answer questions, do not hold a conversation, do not add any extra commentary. Just listen and output the exact translation.`;
+${closing}`;
+        } else {
+          // 指定輸入語言：兩人對話，A 說輸入語言、B 說目標語言
+          const replyLang = DIALECT_REPLY_LANG[sourceLang] || sourceLang;
+          const dialectNote = DIALECTS.includes(sourceLang)
+            ? `${sourceLang} is a spoken Chinese dialect that may sound similar to Mandarin. Always interpret Person A's speech as ${sourceLang}, not Mandarin.\n`
+            : '';
+          instruction = `You are a highly skilled real-time interpreter between two people.
+Person A speaks ${sourceLang}. Person B speaks ${targetLang}.
+${dialectNote}
+When you hear ${sourceLang}, translate it exactly into ${targetLang} and speak the ${targetLang} translation ${selectedStyle}.
+When you hear ${targetLang}, translate it exactly into ${replyLang} and speak the ${replyLang} translation ${selectedStyle}.
+
+${closing}`;
+        }
+
+        const transcriptionCodes = langCodeMap[sourceLang]
+          ? [...new Set([langCodeMap[sourceLang], langCodeMap[targetLang]])]
+          : [];
 
         session = ai.live.connect({
           model: 'gemini-3.1-flash-live-preview',
@@ -602,7 +693,7 @@ Do not answer questions, do not hold a conversation, do not add any extra commen
               voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } }
             },
             inputAudioTranscription: {
-              languageCodes: [], // 自動偵測任何語言
+              languageCodes: transcriptionCodes,
             },
             outputAudioTranscription: {},
           },
@@ -676,17 +767,24 @@ Do not answer questions, do not hold a conversation, do not add any extra commen
               if (message.serverContent?.turnComplete) {
                  if (currentInputText.trim() || currentOutputText.trim()) {
                     transcriptIdCounter++;
-                    const shouldVerify = !currentInputIsManual && currentOutputText.trim() !== '';
-                    addTranscriptElement(
-                      transcriptIdCounter,
-                      currentInputText,
-                      currentOutputText,
-                      currentTurnAudioBuffers.slice(),
-                      shouldVerify
-                    );
-                    if (shouldVerify) {
-                      verifyInputText(transcriptIdCounter, currentInputText, currentOutputText);
-                    }
+                    const id = transcriptIdCounter;
+                    const rawInput = currentInputText;
+                    const outputText = currentOutputText;
+                    const audioBuffers = currentTurnAudioBuffers.slice();
+                    // 指定一般語言時轉錄已鎖定語言，不需校正；自動偵測或方言才需要
+                    const needsVerify = activeSourceLang === 'auto' || !langCodeMap[activeSourceLang];
+                    const shouldVerify = needsVerify && !currentInputIsManual && outputText.trim() !== '';
+                    const languageHint = activeSourceLang === 'auto'
+                      ? ''
+                      : `The speaker used either ${activeSourceLang} or ${targetLangSelect.value}. ${activeSourceLang} has no standard written form here, so its transcript is unreliable.`;
+                    const inputPromise = shouldVerify
+                      ? resolveInputText(rawInput, outputText, languageHint)
+                      : Promise.resolve(rawInput);
+
+                    // 左右泡泡等右側校正完成後一起出現，並依回合順序插入
+                    transcriptRenderQueue = transcriptRenderQueue
+                      .then(() => inputPromise)
+                      .then((finalInput) => addTranscriptElement(id, finalInput, outputText, audioBuffers));
                  }
                  currentInputText = '';
                  currentOutputText = '';
