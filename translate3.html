@@ -403,11 +403,18 @@
       return /[\u4e00-\u9fff]/.test(text) && !/[\u3040-\u30ff\uac00-\ud7af]/.test(text);
     }
 
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`逾時 ${ms / 1000} 秒`)), ms)),
+      ]);
+    }
+
     async function translateToChinese(text) {
-      const res = await aiClient.models.generateContent({
+      const res = await withTimeout(aiClient.models.generateContent({
         model: LANG_DETECT_MODEL,
         contents: `Translate the following text into Traditional Chinese as used in Taiwan. Reply with only the translation.\n\n${text}`,
-      });
+      }), 15000);
       return (res.text || '').trim();
     }
 
@@ -418,11 +425,14 @@
       const langEl = bubble.querySelector('.input-lang');
       const textEl = bubble.querySelector('.input-text');
 
-      const fallback = () => {
-        if (rawInput.trim()) {
-          langEl.classList.add('hidden');
-        } else {
+      const fallback = (label = '') => {
+        if (!rawInput.trim()) {
           bubble.remove();
+        } else if (label) {
+          langEl.textContent = label;
+          langEl.classList.remove('hidden');
+        } else {
+          langEl.classList.add('hidden');
         }
       };
 
@@ -431,17 +441,22 @@
         return;
       }
 
-      const prompt = `Listen to the audio and identify the language the speaker is using.
-- If it is a standard language with a common written form (e.g. Mandarin Chinese, English, Japanese, Korean, Spanish), set "standard" to true and transcribe exactly what was said in that language's own script in "text". Write Mandarin in Traditional Chinese as used in Taiwan.
-- If it is Taiwanese Hokkien (台語), Hakka, Cantonese, another dialect, or a language you cannot identify, set "standard" to false and leave "text" empty.
+      const prompt = `You verify the source-language transcript for a live interpreter app.
+You get the speaker's audio, a speech-recognition transcript (often wrong for dialects), and the interpreter's translation. The interpreter's translation is reliable.
+
+1. Identify the language the speaker used from the audio.
+2. If it is a standard language with a common written form (e.g. Mandarin Chinese, English, Japanese, Korean, Spanish) AND your transcript of it means the same as the interpreter's translation, set "standard" to true and put the transcript in "text", in that language's own script. Write Mandarin in Traditional Chinese as used in Taiwan.
+3. Otherwise set "standard" to false and put the meaning of the interpreter's translation, written in Traditional Chinese as used in Taiwan, in "text". This covers Taiwanese Hokkien (台語), Hakka, Cantonese, other dialects, unidentified languages, and any case where the transcript does not mean the same as the translation.
+Taiwanese Hokkien is often mis-transcribed as unrelated Mandarin characters, e.g. "今仔日天氣真好" (today's weather is very good) heard as "給那個弟弟進喝". Treat such mismatches as Taiwanese.
 Ignore silence and background noise.
 
-Reference speech-recognition transcript (may be inaccurate): """${rawInput}"""
+Speech-recognition transcript: """${rawInput}"""
+Interpreter's translation: """${outputText}"""
 
-Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文, 日文, 台語, 不明語言>", "standard": <true|false>, "text": "<transcript or empty>"}`;
+Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文, 日文, 台語, 不明語言>", "standard": <true|false>, "text": "<text to display>"}`;
 
       try {
-        const res = await aiClient.models.generateContent({
+        const res = await withTimeout(aiClient.models.generateContent({
           model: LANG_DETECT_MODEL,
           contents: [{
             role: 'user',
@@ -451,11 +466,14 @@ Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文,
             ],
           }],
           config: { responseMimeType: 'application/json' },
-        });
+        }), 20000);
         const result = JSON.parse(res.text || '{}');
         let text = (result.text || '').trim();
 
-        if (result.standard === false || !text) {
+        if (result.standard === false && !isChineseText(text)) {
+          text = '';
+        }
+        if (!text) {
           const translation = outputText.trim();
           if (!translation) {
             fallback();
@@ -477,7 +495,7 @@ Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文,
         }
       } catch (err) {
         console.error('語言判斷失敗：', err);
-        fallback();
+        fallback('語言判斷失敗（顯示原始轉錄）');
       }
     }
 
