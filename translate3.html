@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini 即時翻譯機</title>
+  
+  <!-- 引入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 引入 Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- 引入 OpenCC-JS 用於確保顯示繁體中文 -->
+  <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+
+  <style>
+    /* 自訂滾動條樣式 */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    
+    /* 聊天泡泡動畫 */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900 font-sans h-[100dvh] flex flex-col overflow-hidden">
+
+  <header class="bg-white shadow-sm border-b border-slate-200 px-4 md:px-6 py-4 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="bg-blue-600 p-2 rounded-lg text-white shadow-md">
+        <i data-lucide="arrow-left-right"></i>
+      </div>
+      <h1 class="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">
+        Gemini 即時翻譯機 <span id="headerLangBadge" class="text-sm font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded ml-2 border border-blue-200">翻譯成英文</span>
+      </h1>
+    </div>
+    
+    <div class="flex items-center gap-2 md:gap-3">
+      <!-- 目標語言選擇 -->
+      <select id="targetLangSelect" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-slate-700">
+        <optgroup label="常用">
+          <option value="English" selected>目標：英文</option>
+          <option value="Taiwanese Mandarin (Traditional Chinese)">目標：繁體中文</option>
+          <option value="Japanese">目標：日文</option>
+          <option value="Korean">目標：韓文</option>
+        </optgroup>
+        <optgroup label="亞洲">
+          <option value="Thai">目標：泰文</option>
+          <option value="Vietnamese">目標：越南文</option>
+          <option value="Indonesian">目標：印尼文</option>
+          <option value="Malay">目標：馬來文</option>
+          <option value="Filipino">目標：菲律賓文</option>
+          <option value="Hindi">目標：印地文</option>
+          <option value="Arabic">目標：阿拉伯文</option>
+          <option value="Turkish">目標：土耳其文</option>
+        </optgroup>
+        <optgroup label="歐洲">
+          <option value="Spanish">目標：西班牙文</option>
+          <option value="French">目標：法文</option>
+          <option value="German">目標：德文</option>
+          <option value="Italian">目標：義大利文</option>
+          <option value="Portuguese">目標：葡萄牙文</option>
+          <option value="Russian">目標：俄文</option>
+          <option value="Dutch">目標：荷蘭文</option>
+          <option value="Polish">目標：波蘭文</option>
+        </optgroup>
+      </select>
+
+      <!-- Voice Design: 選擇人聲與語氣設定 -->
+      <select id="voiceSelect" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hidden md:block bg-white text-slate-700">
+        <option value="Puck">Puck (活潑)</option>
+        <option value="Charon">Charon (專業)</option>
+        <option value="Kore">Kore (堅定)</option>
+        <option value="Fenrir">Fenrir (熱情)</option>
+        <option value="Aoede">Aoede (輕鬆)</option>
+        <option value="Zephyr" selected>Zephyr (明亮)</option>
+      </select>
+      <select id="styleSelect" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hidden md:block bg-white text-slate-700">
+        <option value="naturally">自然語氣</option>
+        <option value="cheerfully and excitedly">熱情歡樂</option>
+        <option value="professionally and calmly">專業冷靜</option>
+        <option value="like a news anchor">新聞主播</option>
+      </select>
+      <input
+        type="password"
+        id="apiKeyInput"
+        placeholder="輸入 Gemini API Key..."
+        class="text-sm border border-slate-300 rounded-md px-3 py-1.5 w-48 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+      />
+      <span id="statusBadge" class="flex items-center text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 transition-colors whitespace-nowrap">
+        待機中
+      </span>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 flex flex-col gap-4 overflow-y-auto" id="transcriptContainer">
+    
+    <div id="errorAlert" class="hidden bg-red-50 border-red-500 border-l-4 p-4 rounded-md flex items-start gap-3 shrink-0">
+      <i data-lucide="alert-circle" class="text-red-500 mt-0.5 shrink-0"></i>
+      <p id="errorMsg" class="text-red-700 text-sm font-medium"></p>
+    </div>
+
+    <div id="welcomeScreen" class="flex-1 flex flex-col items-center justify-center text-slate-400 gap-4 mt-10 transition-opacity">
+      <div class="bg-slate-100 p-6 rounded-full border-2 border-dashed border-slate-200 relative">
+        <i data-lucide="mic" class="w-12 h-12 text-slate-400"></i>
+        <div class="absolute -bottom-2 -right-2 bg-blue-100 p-1.5 rounded-full border border-blue-200">
+          <i data-lucide="languages" class="w-6 h-6 text-blue-600"></i>
+        </div>
+      </div>
+      <p class="text-lg text-center leading-relaxed">
+        點擊下方按鈕開始對話。<br/>
+        可用 <span class="font-medium text-slate-600">任何語言</span> 說話，自動翻譯成 <span id="welcomeTargetLang" class="font-medium text-slate-600">英文</span>。
+      </p>
+    </div>
+
+    <!-- 逐字稿將會動態插入這裡 -->
+  </main>
+
+  <footer class="bg-white border-t border-slate-200 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] flex justify-center shadow-[0_-10px_40px_rgba(0,0,0,0.03)] shrink-0">
+    <div class="w-full max-w-lg flex flex-col gap-3">
+      <!-- 手動文字輸入（僅在翻譯進行中顯示） -->
+      <div id="textInputBar" class="hidden items-center gap-2">
+        <input
+          type="text"
+          id="manualTextInput"
+          placeholder="輸入文字進行翻譯…"
+          autocomplete="off"
+          class="flex-1 text-sm border border-slate-300 rounded-full px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-slate-800 placeholder:text-slate-400"
+        />
+        <button
+          type="button"
+          id="sendTextBtn"
+          class="shrink-0 flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-full px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm"
+          title="送出文字翻譯"
+        >
+          <i data-lucide="send" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">送出</span>
+        </button>
+      </div>
+      <button
+        id="controlBtn"
+        class="flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-blue-600/30 w-full"
+      >
+        <i data-lucide="mic" id="btnIcon"></i>
+        <span id="btnText">開始語音翻譯</span>
+      </button>
+    </div>
+  </footer>
+
+  <script type="module">
+    // 動態載入 Google GenAI SDK
+    import { GoogleGenAI, Modality } from 'https://esm.sh/@google/genai';
+
+    // 初始化繁簡轉換器 (簡體轉台灣繁體，包含慣用語)
+    const cn2tw = window.OpenCC ? window.OpenCC.Converter({ from: 'cn', to: 'twp' }) : (text) => text;
+
+    lucide.createIcons();
+
+    // DOM 元素參考
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const statusBadge = document.getElementById('statusBadge');
+    const errorAlert = document.getElementById('errorAlert');
+    const errorMsg = document.getElementById('errorMsg');
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    const transcriptContainer = document.getElementById('transcriptContainer');
+    const controlBtn = document.getElementById('controlBtn');
+    const btnIcon = document.getElementById('btnIcon');
+    const btnText = document.getElementById('btnText');
+    const voiceSelect = document.getElementById('voiceSelect');
+    const styleSelect = document.getElementById('styleSelect');
+    const targetLangSelect = document.getElementById('targetLangSelect');
+    const headerLangBadge = document.getElementById('headerLangBadge');
+    const welcomeTargetLang = document.getElementById('welcomeTargetLang');
+    const textInputBar = document.getElementById('textInputBar');
+    const manualTextInput = document.getElementById('manualTextInput');
+    const sendTextBtn = document.getElementById('sendTextBtn');
+
+    // 處理語言切換事件
+    const langNameMap = {
+      'English': '英文',
+      'Taiwanese Mandarin (Traditional Chinese)': '繁體中文',
+      'Japanese': '日文',
+      'Korean': '韓文',
+      'Thai': '泰文',
+      'Vietnamese': '越南文',
+      'Indonesian': '印尼文',
+      'Malay': '馬來文',
+      'Filipino': '菲律賓文',
+      'Hindi': '印地文',
+      'Arabic': '阿拉伯文',
+      'Turkish': '土耳其文',
+      'Spanish': '西班牙文',
+      'French': '法文',
+      'German': '德文',
+      'Italian': '義大利文',
+      'Portuguese': '葡萄牙文',
+      'Russian': '俄文',
+      'Dutch': '荷蘭文',
+      'Polish': '波蘭文'
+    };
+
+    targetLangSelect.addEventListener('change', (e) => {
+      const langZh = langNameMap[e.target.value];
+      welcomeTargetLang.textContent = langZh;
+      headerLangBadge.textContent = '翻譯成' + langZh;
+    });
+
+    // 狀態變數
+    let isSessionActive = false;
+    let isConnecting = false;
+    let session = null;
+    let inputAudioContext = null;
+    let outputAudioContext = null;
+    let stream = null;
+    let audioSources = new Set();
+    let nextStartTime = 0;
+    
+    // 防回音機制：記錄目前有幾個音軌正在播放
+    let activePlaybackCount = 0; 
+
+    // 暫存轉錄文字
+    let currentInputText = '';
+    let currentOutputText = '';
+    let transcriptIdCounter = 0;
+
+    // 暫存本輪 AI 語音，供重複播放
+    let currentTurnAudioBuffers = [];
+    const transcriptAudioMap = new Map();
+
+    const savedKey = localStorage.getItem('gemini_api_key_html');
+    if (savedKey) apiKeyInput.value = savedKey;
+
+    function decodeBase64(base64) {
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    async function decodeAudioData(data, ctx, sampleRate, numChannels) {
+      const dataInt16 = new Int16Array(data.buffer);
+      const frameCount = dataInt16.length / numChannels;
+      const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+      for (let channel = 0; channel < numChannels; channel++) {
+        const channelData = buffer.getChannelData(channel);
+        for (let i = 0; i < frameCount; i++) {
+          channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+        }
+      }
+      return buffer;
+    }
+
+    function encodeBase64(bytes) {
+      let binary = '';
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+
+    function createBlob(data) {
+      const l = data.length;
+      const int16 = new Int16Array(l);
+      for (let i = 0; i < l; i++) {
+        int16[i] = data[i] * 32768;
+      }
+      return {
+        data: encodeBase64(new Uint8Array(int16.buffer)),
+        mimeType: 'audio/pcm;rate=16000',
+      };
+    }
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorAlert.classList.remove('hidden');
+    }
+
+    function hideError() {
+      errorAlert.classList.add('hidden');
+    }
+
+    function updateUIStatus() {
+      if (isConnecting) {
+        apiKeyInput.style.display = 'none';
+        voiceSelect.disabled = true;
+        styleSelect.disabled = true;
+        targetLangSelect.disabled = true;
+        textInputBar.classList.add('hidden');
+        textInputBar.classList.remove('flex');
+        manualTextInput.disabled = true;
+        sendTextBtn.disabled = true;
+        statusBadge.className = 'flex items-center text-sm font-medium text-amber-500 bg-amber-50 px-3 py-1 rounded-full border border-amber-200';
+        statusBadge.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 mr-2 animate-spin"></i>連線中...';
+        
+        // 連線中：保持靜止的麥克風圖示，無動畫
+        controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-400 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold cursor-wait shadow-lg w-full';
+        controlBtn.innerHTML = '<i data-lucide="mic"></i><span>連線中...</span>';
+      } else if (isSessionActive) {
+        apiKeyInput.style.display = 'none';
+        welcomeScreen.style.display = 'none';
+        voiceSelect.disabled = true;
+        styleSelect.disabled = true;
+        targetLangSelect.disabled = true;
+        textInputBar.classList.remove('hidden');
+        textInputBar.classList.add('flex');
+        manualTextInput.disabled = false;
+        sendTextBtn.disabled = false;
+        
+        // 根據防回音狀態顯示不同的 Badge
+        if (activePlaybackCount > 0) {
+          statusBadge.className = 'flex items-center text-sm font-medium px-3 py-1 rounded-full border shadow-sm text-purple-600 bg-purple-50 border-purple-200';
+          statusBadge.innerHTML = '<i data-lucide="volume-2" class="w-4 h-4 mr-1.5 animate-pulse"></i>AI 發音中 (麥克風暫停收音)';
+        } else {
+          statusBadge.className = 'flex items-center text-sm font-medium px-3 py-1 rounded-full border shadow-sm text-emerald-600 bg-emerald-50 border-emerald-200';
+          statusBadge.innerHTML = '<span class="relative flex h-2.5 w-2.5 mr-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>聆聽中...';
+        }
+
+        // 即時偵測中：按鈕變成紅色並加入呼吸燈動畫 (animate-pulse)
+        controlBtn.className = 'flex items-center justify-center gap-3 bg-red-500 hover:bg-red-600 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-all shadow-lg shadow-red-500/30 w-full animate-pulse';
+        controlBtn.innerHTML = '<i data-lucide="mic-off"></i><span>停止翻譯</span>';
+      } else {
+        apiKeyInput.style.display = 'block';
+        voiceSelect.disabled = false;
+        styleSelect.disabled = false;
+        targetLangSelect.disabled = false;
+        textInputBar.classList.add('hidden');
+        textInputBar.classList.remove('flex');
+        manualTextInput.disabled = true;
+        sendTextBtn.disabled = true;
+        manualTextInput.value = '';
+        statusBadge.className = 'flex items-center text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200';
+        statusBadge.innerHTML = '待機中';
+        
+        // 待機狀態：保持靜止，移除縮放等干擾動畫
+        controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-colors shadow-lg shadow-blue-600/30 w-full';
+        controlBtn.innerHTML = '<i data-lucide="mic"></i><span>開始語音翻譯</span>';
+      }
+      lucide.createIcons();
+    }
+
+    // 日文假名或韓文不可經過 OpenCC，否則日文漢字會被改成中文字形
+    function toDisplayText(text) {
+      if (/[\u3040-\u30ff\uac00-\ud7af]/.test(text)) return text;
+      return cn2tw(text);
+    }
+
+    function addTranscriptElement(id, inputText, outputText, audioBuffers = []) {
+      const div = document.createElement('div');
+      div.id = `transcript-${id}`;
+      div.className = 'flex flex-col gap-2 mb-4 animate-fade-in';
+      
+      // 無論輸入或輸出，都經過繁體轉換過濾 (英文不會受影響)
+      const displayInputText = inputText ? toDisplayText(inputText) : '';
+      const displayOutputText = outputText ? toDisplayText(outputText) : '';
+      const hasReplay = audioBuffers.length > 0;
+      
+      if (hasReplay) {
+        transcriptAudioMap.set(id, audioBuffers);
+      }
+      
+      let htmlContent = '';
+      
+      if (displayInputText) {
+        htmlContent += `
+          <div class="flex justify-end">
+            <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-sm">
+              <p class="text-base leading-relaxed">${displayInputText}</p>
+            </div>
+          </div>
+        `;
+      }
+      
+      if (displayOutputText) {
+        htmlContent += `
+          <div class="flex justify-start items-end gap-2 mt-1">
+            <div class="bg-white border border-slate-200 text-slate-800 px-5 py-3 rounded-2xl rounded-tl-sm max-w-[85%] shadow-sm flex flex-col gap-1">
+               <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">
+                 <i data-lucide="languages" class="w-3 h-3"></i>
+                 Translation
+               </div>
+              <p class="text-base leading-relaxed font-medium">${displayOutputText}</p>
+            </div>
+            ${hasReplay ? `
+            <button
+              type="button"
+              class="replay-audio-btn shrink-0 mb-1 p-2 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 hover:text-emerald-700 transition-colors shadow-sm"
+              data-transcript-id="${id}"
+              title="重新播放語音"
+              aria-label="重新播放語音"
+            >
+              <i data-lucide="volume-2" class="w-4 h-4"></i>
+            </button>
+            ` : ''}
+          </div>
+        `;
+      }
+      
+      div.innerHTML = htmlContent;
+      transcriptContainer.appendChild(div);
+      lucide.createIcons({ root: div });
+
+      if (hasReplay) {
+        const replayBtn = div.querySelector('.replay-audio-btn');
+        if (replayBtn) {
+          replayBtn.addEventListener('click', () => replayTranscriptAudio(id));
+        }
+      }
+      
+      transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+    }
+
+    async function replayTranscriptAudio(id) {
+      const buffers = transcriptAudioMap.get(id);
+      if (!buffers || buffers.length === 0) return;
+
+      let ctx = outputAudioContext;
+      let createdTempContext = false;
+      if (!ctx || ctx.state === 'closed') {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        createdTempContext = true;
+      }
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+
+      let startAt = ctx.currentTime;
+      for (const buffer of buffers) {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(gain);
+
+        activePlaybackCount++;
+        updateUIStatus();
+
+        source.addEventListener('ended', () => {
+          activePlaybackCount = Math.max(0, activePlaybackCount - 1);
+          updateUIStatus();
+          if (createdTempContext && activePlaybackCount === 0) {
+            ctx.close();
+          }
+        });
+
+        source.start(startAt);
+        startAt += buffer.duration;
+      }
+    }
+
+    async function startSession() {
+      const apiKey = apiKeyInput.value.trim();
+      if (!apiKey) {
+        showError('請先輸入您的 Gemini API Key。');
+        return;
+      }
+      localStorage.setItem('gemini_api_key_html', apiKey);
+      
+      hideError();
+      isConnecting = true;
+      activePlaybackCount = 0;
+      updateUIStatus();
+
+      try {
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+
+        inputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        outputAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        nextStartTime = 0;
+
+        const workletCode = `
+          class RecorderProcessor extends AudioWorkletProcessor {
+            process(inputs, outputs, parameters) {
+              const input = inputs[0];
+              if (input.length > 0) {
+                this.port.postMessage(input[0]);
+              }
+              return true;
+            }
+          }
+          registerProcessor('recorder-processor', RecorderProcessor);
+        `;
+        const workletDataUrl = 'data:application/javascript;base64,' + btoa(workletCode);
+        await inputAudioContext.audioWorklet.addModule(workletDataUrl);
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true, // 保留硬體降噪作為第一層防護
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        });
+
+        const outputNode = outputAudioContext.createGain();
+        outputNode.connect(outputAudioContext.destination);
+
+        const selectedVoice = voiceSelect.value;
+        const selectedStyle = styleSelect.value;
+        const targetLang = targetLangSelect.value;
+        
+        // 輸入語音不限語種，一律翻譯成選定的目標語言；說的就是目標語言時改譯成備用語言
+        const chineseLang = 'Taiwanese Mandarin (Traditional Chinese)';
+        const fallbackLang = targetLang === chineseLang ? 'English' : chineseLang;
+        const instruction = `You are a highly skilled real-time interpreter.
+The user may speak in ANY language. Automatically detect the spoken language.
+
+If the user speaks any language other than ${targetLang}, translate it exactly into ${targetLang} and speak the ${targetLang} translation ${selectedStyle}.
+If the user speaks ${targetLang}, translate it exactly into ${fallbackLang} and speak the ${fallbackLang} translation ${selectedStyle}.
+
+Do not answer questions, do not hold a conversation, do not add any extra commentary. Just listen and output the exact translation.`;
+
+        session = ai.live.connect({
+          model: 'gemini-3.1-flash-live-preview',
+          config: {
+            responseModalities: [Modality.AUDIO],
+            systemInstruction: instruction,
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } }
+            },
+            inputAudioTranscription: {
+              languageCodes: [], // 自動偵測任何語言
+            },
+            outputAudioTranscription: {},
+          },
+          callbacks: {
+            onopen: () => {
+              isConnecting = false;
+              isSessionActive = true;
+              updateUIStatus();
+              
+              const source = inputAudioContext.createMediaStreamSource(stream);
+              const recorder = new AudioWorkletNode(inputAudioContext, 'recorder-processor');
+
+              recorder.port.onmessage = (event) => {
+                let inputData = event.data;
+                
+                // 【核心防回音機制：Software Mute】
+                // 當喇叭正在播放 AI 翻譯結果時，強制將麥克風資料清零 (傳送靜音包)
+                // 這樣 Gemini 就不會聽到自己的聲音，100% 避免誤判迴圈！
+                if (activePlaybackCount > 0) {
+                   inputData = new Float32Array(inputData.length); // 產生全為 0 的靜音陣列
+                }
+                
+                const pcmBlob = createBlob(inputData);
+                session.then((s) => s.sendRealtimeInput({ audio: pcmBlob }));
+              };
+
+              source.connect(recorder);
+              recorder.connect(inputAudioContext.destination);
+            },
+            onmessage: async (message) => {
+              if (message.serverContent?.inputTranscription) {
+                currentInputText += message.serverContent.inputTranscription.text;
+              }
+              if (message.serverContent?.outputTranscription) {
+                currentOutputText += message.serverContent.outputTranscription.text;
+              }
+
+              const base64EncodedAudioString = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+              if (base64EncodedAudioString) {
+                nextStartTime = Math.max(nextStartTime, outputAudioContext.currentTime);
+                
+                const audioBuffer = await decodeAudioData(
+                  decodeBase64(base64EncodedAudioString),
+                  outputAudioContext,
+                  24000,
+                  1,
+                );
+
+                // 保留本輪音訊，供翻譯泡泡上的重複播放使用
+                currentTurnAudioBuffers.push(audioBuffer);
+                
+                const source = outputAudioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(outputNode);
+                
+                source.addEventListener('ended', () => {
+                  audioSources.delete(source);
+                  activePlaybackCount = Math.max(0, activePlaybackCount - 1);
+                  updateUIStatus(); // 更新 UI 狀態，解除靜音 Badge
+                });
+
+                source.start(nextStartTime);
+                nextStartTime = nextStartTime + audioBuffer.duration;
+                audioSources.add(source);
+                
+                // 標記開始播放，啟動麥克風靜音防回音機制
+                activePlaybackCount++;
+                updateUIStatus(); 
+              }
+              
+              if (message.serverContent?.turnComplete) {
+                 if (currentInputText.trim() || currentOutputText.trim()) {
+                    transcriptIdCounter++;
+                    addTranscriptElement(
+                      transcriptIdCounter,
+                      currentInputText,
+                      currentOutputText,
+                      currentTurnAudioBuffers.slice()
+                    );
+                 }
+                 currentInputText = '';
+                 currentOutputText = '';
+                 currentTurnAudioBuffers = [];
+              }
+
+              if (message.serverContent?.interrupted) {
+                for (const source of audioSources.values()) {
+                  source.stop();
+                }
+                audioSources.clear();
+                activePlaybackCount = 0;
+                nextStartTime = 0;
+                currentTurnAudioBuffers = [];
+                updateUIStatus();
+              }
+            },
+            onerror: (e) => {
+              console.error('Session error:', e);
+              showError('連線發生錯誤，請稍後再試。');
+              stopSession();
+            },
+            onclose: () => {
+              console.log('Session closed');
+              stopSession();
+            },
+          }
+        });
+        
+        session.catch(err => {
+          showError('連線失敗：' + (err.message || err.toString()));
+          stopSession();
+        });
+
+      } catch (err) {
+        console.error(err);
+        showError('無法啟動連線或取得麥克風權限：' + err.message);
+        stopSession();
+      }
+    }
+
+    function stopSession() {
+      isSessionActive = false;
+      isConnecting = false;
+      activePlaybackCount = 0;
+      
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+      
+      if (inputAudioContext) {
+        inputAudioContext.close();
+        inputAudioContext = null;
+      }
+      if (outputAudioContext) {
+        outputAudioContext.close();
+        outputAudioContext = null;
+      }
+      
+      for (const source of audioSources.values()) {
+        source.stop();
+      }
+      audioSources.clear();
+      
+      currentInputText = '';
+      currentOutputText = '';
+      currentTurnAudioBuffers = [];
+      
+      updateUIStatus();
+    }
+
+    controlBtn.addEventListener('click', () => {
+      if (isConnecting) return;
+      if (isSessionActive) {
+        stopSession();
+      } else {
+        startSession();
+      }
+    });
+
+    async function sendManualText() {
+      const text = manualTextInput.value.trim();
+      if (!text || !isSessionActive || !session) return;
+
+      // 手動輸入沒有麥克風轉錄，先寫入本輪輸入文字以便逐字稿顯示
+      currentInputText = text;
+      manualTextInput.value = '';
+
+      try {
+        const s = await session;
+        // 以完整一輪文字送出，觸發翻譯語音回覆
+        if (typeof s.sendClientContent === 'function') {
+          s.sendClientContent({
+            turns: [{ role: 'user', parts: [{ text }] }],
+            turnComplete: true,
+          });
+        } else {
+          s.sendRealtimeInput({ text });
+        }
+      } catch (err) {
+        console.error(err);
+        showError('文字送出失敗：' + (err.message || err.toString()));
+      }
+    }
+
+    sendTextBtn.addEventListener('click', () => {
+      sendManualText();
+    });
+
+    manualTextInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        sendManualText();
+      }
+    });
+
+  </script>
+</body>
+</html>
