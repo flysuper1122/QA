@@ -234,6 +234,18 @@
     let currentTurnAudioBuffers = [];
     const transcriptAudioMap = new Map();
 
+    // 本輪是否為手動文字輸入（手動輸入不需判斷語言）
+    let currentInputIsManual = false;
+
+    // 本輪麥克風原音（16kHz），供 AI 判斷輸入語言；最多保留 30 秒
+    let currentTurnMicChunks = [];
+    let currentTurnMicSamples = 0;
+    const MAX_TURN_MIC_SAMPLES = 16000 * 30;
+
+    // 判斷輸入語言用的模型
+    const LANG_DETECT_MODEL = 'gemini-flash-latest';
+    let aiClient = null;
+
     const savedKey = localStorage.getItem('gemini_api_key_html');
     if (savedKey) apiKeyInput.value = savedKey;
 
@@ -355,7 +367,99 @@
       return cn2tw(text);
     }
 
-    function addTranscriptElement(id, inputText, outputText, audioBuffers = []) {
+    function float32ChunksToWavBase64(chunks, sampleRate) {
+      const totalSamples = chunks.reduce((sum, c) => sum + c.length, 0);
+      const buffer = new ArrayBuffer(44 + totalSamples * 2);
+      const view = new DataView(buffer);
+      const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + totalSamples * 2, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, totalSamples * 2, true);
+      let offset = 44;
+      for (const chunk of chunks) {
+        for (let i = 0; i < chunk.length; i++) {
+          const s = Math.max(-1, Math.min(1, chunk[i]));
+          view.setInt16(offset, s * 32767, true);
+          offset += 2;
+        }
+      }
+      return encodeBase64(new Uint8Array(buffer));
+    }
+
+    // 先讓 AI 從原音判斷輸入語言；台語等方言或無法辨識的語言改以繁體中文顯示
+    async function detectInputLanguage(id, micChunks, rawInput, outputText) {
+      const bubble = document.querySelector(`#transcript-${id} .input-bubble`);
+      if (!bubble) return;
+      const langEl = bubble.querySelector('.input-lang');
+      const textEl = bubble.querySelector('.input-text');
+
+      const fallback = () => {
+        if (rawInput.trim()) {
+          langEl.classList.add('hidden');
+        } else {
+          bubble.remove();
+        }
+      };
+
+      if (!aiClient || micChunks.length === 0) {
+        fallback();
+        return;
+      }
+
+      const prompt = `Listen to the audio and first identify the language the speaker is using.
+- If it is a standard language with a common written form (e.g. Mandarin Chinese, English, Japanese, Korean, Spanish), transcribe exactly what was said in that language's own script. Write Mandarin in Traditional Chinese as used in Taiwan.
+- If it is Taiwanese Hokkien (台語), Hakka, Cantonese, another dialect, or a language you cannot identify, write the meaning in Traditional Chinese as used in Taiwan.
+Ignore silence and background noise.
+
+Reference speech-recognition transcript (may be inaccurate): """${rawInput}"""
+Reference translation produced by the interpreter: """${outputText}"""
+
+Reply in JSON: {"language": "<language name in Traditional Chinese, e.g. 英文, 日文, 台語, 不明語言>", "text": "<text to display>"}`;
+
+      try {
+        const res = await aiClient.models.generateContent({
+          model: LANG_DETECT_MODEL,
+          contents: [{
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'audio/wav', data: float32ChunksToWavBase64(micChunks, 16000) } },
+              { text: prompt },
+            ],
+          }],
+          config: { responseMimeType: 'application/json' },
+        });
+        const result = JSON.parse(res.text || '{}');
+        const text = (result.text || '').trim();
+        if (!text) {
+          fallback();
+          return;
+        }
+        textEl.textContent = toDisplayText(text);
+        if (result.language) {
+          langEl.textContent = result.language;
+          langEl.classList.remove('hidden');
+        } else {
+          langEl.classList.add('hidden');
+        }
+      } catch (err) {
+        console.error('語言判斷失敗：', err);
+        fallback();
+      }
+    }
+
+    function addTranscriptElement(id, inputText, outputText, audioBuffers = [], detectingLanguage = false) {
       const div = document.createElement('div');
       div.id = `transcript-${id}`;
       div.className = 'flex flex-col gap-2 mb-4 animate-fade-in';
@@ -371,11 +475,12 @@
       
       let htmlContent = '';
       
-      if (displayInputText) {
+      if (displayInputText || detectingLanguage) {
         htmlContent += `
-          <div class="flex justify-end">
+          <div class="input-bubble flex justify-end">
             <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-sm">
-              <p class="text-base leading-relaxed">${displayInputText}</p>
+              <div class="input-lang text-xs font-semibold text-blue-100 mb-1 ${detectingLanguage ? '' : 'hidden'}">${detectingLanguage ? '判斷語言中…' : ''}</div>
+              <p class="input-text text-base leading-relaxed">${displayInputText}</p>
             </div>
           </div>
         `;
@@ -474,6 +579,7 @@
 
       try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
+        aiClient = ai;
 
         inputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         outputAudioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -551,6 +657,12 @@ Do not answer questions, do not hold a conversation, do not add any extra commen
                 // 這樣 Gemini 就不會聽到自己的聲音，100% 避免誤判迴圈！
                 if (activePlaybackCount > 0) {
                    inputData = new Float32Array(inputData.length); // 產生全為 0 的靜音陣列
+                } else {
+                  currentTurnMicChunks.push(inputData);
+                  currentTurnMicSamples += inputData.length;
+                  while (currentTurnMicSamples > MAX_TURN_MIC_SAMPLES && currentTurnMicChunks.length > 1) {
+                    currentTurnMicSamples -= currentTurnMicChunks.shift().length;
+                  }
                 }
                 
                 const pcmBlob = createBlob(inputData);
@@ -604,16 +716,29 @@ Do not answer questions, do not hold a conversation, do not add any extra commen
               if (message.serverContent?.turnComplete) {
                  if (currentInputText.trim() || currentOutputText.trim()) {
                     transcriptIdCounter++;
+                    const shouldDetect = !currentInputIsManual && currentTurnMicChunks.length > 0;
                     addTranscriptElement(
                       transcriptIdCounter,
                       currentInputText,
                       currentOutputText,
-                      currentTurnAudioBuffers.slice()
+                      currentTurnAudioBuffers.slice(),
+                      shouldDetect
                     );
+                    if (shouldDetect) {
+                      detectInputLanguage(
+                        transcriptIdCounter,
+                        currentTurnMicChunks,
+                        currentInputText,
+                        currentOutputText
+                      );
+                    }
                  }
                  currentInputText = '';
                  currentOutputText = '';
                  currentTurnAudioBuffers = [];
+                 currentInputIsManual = false;
+                 currentTurnMicChunks = [];
+                 currentTurnMicSamples = 0;
               }
 
               if (message.serverContent?.interrupted) {
@@ -678,6 +803,9 @@ Do not answer questions, do not hold a conversation, do not add any extra commen
       currentInputText = '';
       currentOutputText = '';
       currentTurnAudioBuffers = [];
+      currentInputIsManual = false;
+      currentTurnMicChunks = [];
+      currentTurnMicSamples = 0;
       
       updateUIStatus();
     }
@@ -697,6 +825,7 @@ Do not answer questions, do not hold a conversation, do not add any extra commen
 
       // 手動輸入沒有麥克風轉錄，先寫入本輪輸入文字以便逐字稿顯示
       currentInputText = text;
+      currentInputIsManual = true;
       manualTextInput.value = '';
 
       try {
