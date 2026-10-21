@@ -76,9 +76,7 @@
         </optgroup>
       </select>
 
-      <span id="statusBadge" class="flex items-center text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 transition-colors whitespace-nowrap">
-        待機中
-      </span>
+      <span id="statusBadge" class="hidden"></span>
     </div>
   </header>
 
@@ -760,7 +758,7 @@
         textInputBar.classList.remove('flex');
         manualTextInput.disabled = true;
         sendTextBtn.disabled = true;
-        statusBadge.className = 'flex items-center text-sm font-medium text-amber-500 bg-amber-50 px-3 py-1 rounded-full border border-amber-200';
+        statusBadge.className = 'flex items-center whitespace-nowrap text-sm font-medium text-amber-500 bg-amber-50 px-3 py-1 rounded-full border border-amber-200';
         statusBadge.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 mr-2 animate-spin"></i>連線中...';
         
         // 連線中：保持靜止的麥克風圖示，無動畫
@@ -779,10 +777,10 @@
         
         // 根據防回音狀態顯示不同的 Badge
         if (activePlaybackCount > 0) {
-          statusBadge.className = 'flex items-center text-sm font-medium px-3 py-1 rounded-full border shadow-sm text-purple-600 bg-purple-50 border-purple-200';
-          statusBadge.innerHTML = '<i data-lucide="volume-2" class="w-4 h-4 mr-1.5 animate-pulse"></i>AI 發音中 (麥克風暫停收音)';
+          statusBadge.className = 'flex items-center whitespace-nowrap text-sm font-medium px-3 py-1 rounded-full border shadow-sm text-purple-600 bg-purple-50 border-purple-200';
+          statusBadge.innerHTML = '<i data-lucide="volume-2" class="w-4 h-4 mr-1.5 animate-pulse"></i>AI 發音中<span class="hidden sm:inline">&nbsp;(麥克風暫停收音)</span>';
         } else {
-          statusBadge.className = 'flex items-center text-sm font-medium px-3 py-1 rounded-full border shadow-sm text-emerald-600 bg-emerald-50 border-emerald-200';
+          statusBadge.className = 'flex items-center whitespace-nowrap text-sm font-medium px-3 py-1 rounded-full border shadow-sm text-emerald-600 bg-emerald-50 border-emerald-200';
           statusBadge.innerHTML = '<span class="relative flex h-2.5 w-2.5 mr-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>聆聽中...';
         }
 
@@ -799,8 +797,9 @@
         manualTextInput.disabled = true;
         sendTextBtn.disabled = true;
         manualTextInput.value = '';
-        statusBadge.className = 'flex items-center text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200';
-        statusBadge.innerHTML = '待機中';
+        // 閒置時不顯示狀態標籤
+        statusBadge.className = 'hidden';
+        statusBadge.innerHTML = '';
         
         // 待機狀態：保持靜止，移除縮放等干擾動畫
         controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-colors shadow-lg shadow-blue-600/30 w-full';
