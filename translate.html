@@ -740,11 +740,21 @@
     }
 
     // iOS 加到主畫面的網頁沒有重新整理按鈕；加上時間參數避免讀到快取的舊版頁面
-    function reloadPage() {
+    async function reloadPage() {
       const hasConversation = isSessionActive || transcriptContainer.querySelector('[id^="transcript-"]');
       if (hasConversation && !confirm('重新載入會中斷翻譯並清除目前的對話紀錄，確定要重新載入嗎？')) return;
       localStorage.setItem('gemini_api_key_html', apiKeyInput.value.trim());
+      reloadPageBtn.disabled = true;
+      reloadPageBtn.textContent = '重新載入中…';
+
+      // 先強制向伺服器重新抓取頁面，更新瀏覽器快取，避免 iOS 主畫面 App 讀到舊版
       const url = new URL(location.href);
+      url.searchParams.delete('_reload');
+      try {
+        await fetch(url.toString(), { cache: 'reload' });
+      } catch (err) {
+        console.warn('預先更新快取失敗，直接重新載入：', err);
+      }
       url.searchParams.set('_reload', Date.now());
       location.replace(url.toString());
     }
