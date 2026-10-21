@@ -397,6 +397,7 @@
     apiKeyInput.addEventListener('change', () => {
       localStorage.setItem('gemini_api_key_html', apiKeyInput.value.trim());
     });
+    apiKeyInput.addEventListener('input', () => updatePreviewButton());
 
     // ===== 發音員（內建語音 + Voice Design 自訂語音） =====
     const PREBUILT_VOICES = [
@@ -434,12 +435,24 @@
       return voiceSelect.selectedOptions[0]?.dataset.custom === '1';
     }
 
+    const NO_KEY_PREVIEW_HINT = '輸入 API Key 後即可試聽。';
+
+    function updatePreviewButton() {
+      const hasKey = !!apiKeyInput.value.trim();
+      previewVoiceBtn.disabled = !hasKey || isSessionActive || isConnecting;
+      if (!hasKey) {
+        voiceStatus.textContent = NO_KEY_PREVIEW_HINT;
+      } else if (voiceStatus.textContent === NO_KEY_PREVIEW_HINT) {
+        voiceStatus.textContent = '';
+      }
+    }
+
     function saveVoiceChoice() {
       localStorage.setItem(VOICE_KEY, voiceSelect.value);
       localStorage.setItem(VOICE_LABEL_KEY, voiceSelect.selectedOptions[0]?.textContent || voiceSelect.value);
       localStorage.setItem(VOICE_CUSTOM_KEY, selectedVoiceIsCustom() ? '1' : '');
-      previewVoiceBtn.disabled = !selectedVoiceIsCustom() || isSessionActive || isConnecting;
-      voiceStatus.textContent = selectedVoiceIsCustom() ? '' : '內建語音沒有試聽音檔；自訂語音可以試聽。';
+      voiceStatus.textContent = '';
+      updatePreviewButton();
     }
 
     function buildVoiceOptions() {
@@ -464,13 +477,80 @@
     function getSettingsClient() {
       const key = apiKeyInput.value.trim();
       if (!key) throw new Error('請先輸入 API Key。');
-      const ai = new GoogleGenAI({ apiKey: key });
+      return new GoogleGenAI({ apiKey: key });
+    }
+
+    function requireVoicesApi(ai) {
       if (!ai.voices) throw new Error('目前載入的 SDK 版本不支援 Voices API。');
-      return ai;
     }
 
     function playWavBase64(data) {
-      new Audio('data:audio/wav;base64,' + data).play();
+      new Audio('data:audio/wav;base64,' + data).play().catch((err) => {
+        console.error(err);
+        voiceStatus.textContent = '無法播放試聽語音：' + (err.message || err);
+      });
+    }
+
+    // TTS 可能回傳 WAV，也可能回傳原始 16-bit PCM；PCM 需補上 WAV 檔頭才能播放
+    function toPlayableWav(base64, mimeType = '') {
+      if (base64.startsWith('UklGR') || /wav/i.test(mimeType)) return base64;
+      const sampleRate = Number(/rate=(\d+)/.exec(mimeType)?.[1]) || 24000;
+      const pcm = decodeBase64(base64);
+      const wav = new Uint8Array(44 + pcm.length);
+      const view = new DataView(wav.buffer);
+      const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + pcm.length, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, pcm.length, true);
+      wav.set(pcm, 44);
+      return encodeBase64(wav);
+    }
+
+    // 試聽句子依目標語言挑選，沒有對應的就用英文
+    const PREVIEW_SAMPLE_TEXT = {
+      'English': "Hello! I'll be your interpreter today.",
+      [CHINESE_LANG]: '你好，今天由我來為你即時翻譯。',
+      'Japanese': 'こんにちは。本日の通訳を担当します。',
+      'Korean': '안녕하세요. 오늘 통역을 맡게 되었습니다.',
+      'Vietnamese': 'Xin chào, hôm nay tôi sẽ là phiên dịch viên của bạn.',
+      'Spanish': '¡Hola! Hoy seré tu intérprete.',
+      'French': "Bonjour ! Je serai votre interprète aujourd'hui.",
+      'German': 'Hallo! Ich bin heute Ihr Dolmetscher.',
+    };
+    const previewCache = new Map();
+
+    async function synthesizePreview(ai, voice, text, style) {
+      if (!ai.interactions) throw new Error('目前載入的 SDK 版本不支援語音合成（Interactions API）。');
+      const interaction = await ai.interactions.create({
+        model: VOICE_DESIGN_MODEL,
+        input: [{
+          type: 'user_input',
+          content: [{
+            type: 'text',
+            text,
+            annotations: [{ type: 'speech_metadata', style }],
+          }],
+        }],
+        response_format: { type: 'audio' },
+        generation_config: {
+          speech_config: [{ voice }],
+        },
+      });
+      const audio = interaction.output_audio;
+      if (!audio?.data) throw new Error('沒有收到語音資料。');
+      return toPlayableWav(audio.data, audio.mime_type || audio.mimeType || '');
     }
 
     async function loadCustomVoices() {
@@ -478,6 +558,7 @@
       voiceStatus.textContent = '讀取自訂語音中…';
       try {
         const ai = getSettingsClient();
+        requireVoicesApi(ai);
         const res = await ai.voices.list({ type: ['prompted'] });
         const voices = res.voices ?? [];
         for (const v of voices) addCustomVoiceOption(v.id, v.display_name || v.id);
@@ -493,23 +574,34 @@
     }
 
     async function previewSelectedVoice() {
-      if (!selectedVoiceIsCustom()) return;
+      const voice = voiceSelect.value;
+      const text = PREVIEW_SAMPLE_TEXT[targetLangSelect.value] || PREVIEW_SAMPLE_TEXT.English;
+      const style = styleSelect.value;
+      const cacheKey = `${voice}|${text}|${style}`;
+      if (previewCache.has(cacheKey)) {
+        playWavBase64(previewCache.get(cacheKey));
+        return;
+      }
+
       previewVoiceBtn.disabled = true;
-      voiceStatus.textContent = '取得試聽音檔中…';
+      voiceStatus.textContent = '產生試聽語音中…';
       try {
         const ai = getSettingsClient();
-        const voice = await ai.voices.get(voiceSelect.value);
-        if (voice.sample_audio?.data) {
-          playWavBase64(voice.sample_audio.data);
-          voiceStatus.textContent = '';
-        } else {
-          voiceStatus.textContent = '這個語音沒有試聽音檔。';
+        let wav = '';
+        // 自訂語音優先使用建立時產生的試聽音檔
+        if (selectedVoiceIsCustom() && ai.voices) {
+          const info = await ai.voices.get(voice);
+          if (info.sample_audio?.data) wav = toPlayableWav(info.sample_audio.data, info.sample_audio.mime_type || '');
         }
+        if (!wav) wav = await synthesizePreview(ai, voice, text, style);
+        previewCache.set(cacheKey, wav);
+        playWavBase64(wav);
+        voiceStatus.textContent = '';
       } catch (err) {
         console.error(err);
         voiceStatus.textContent = '試聽失敗：' + (err.message || err);
       } finally {
-        previewVoiceBtn.disabled = !selectedVoiceIsCustom() || isSessionActive || isConnecting;
+        updatePreviewButton();
       }
     }
 
@@ -524,6 +616,7 @@
       designStatus.textContent = '建立語音中，約需數秒…';
       try {
         const ai = getSettingsClient();
+        requireVoicesApi(ai);
         const created = await ai.voices.create({
           store: true,
           voice: {
@@ -556,7 +649,7 @@
       for (const el of [apiKeyInput, loadVoicesBtn, designNameInput, designGenderSelect, designPromptInput, createVoiceBtn]) {
         el.disabled = locked;
       }
-      previewVoiceBtn.disabled = locked || !selectedVoiceIsCustom();
+      updatePreviewButton();
     }
 
     function openSettings() {
