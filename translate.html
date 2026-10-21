@@ -217,7 +217,10 @@
         </section>
       </div>
 
-      <div class="px-5 py-4 border-t border-slate-200 flex justify-end shrink-0">
+      <div class="px-5 py-4 border-t border-slate-200 flex justify-between items-center shrink-0">
+        <button id="reloadPageBtn" type="button" class="flex items-center gap-1.5 text-sm border border-slate-300 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50">
+          <i data-lucide="rotate-cw" class="w-4 h-4"></i>重新載入頁面
+        </button>
         <button id="settingsDoneBtn" type="button" class="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 text-sm font-semibold">完成</button>
       </div>
     </div>
@@ -257,6 +260,7 @@
     const settingsModal = document.getElementById('settingsModal');
     const settingsCloseBtn = document.getElementById('settingsCloseBtn');
     const settingsDoneBtn = document.getElementById('settingsDoneBtn');
+    const reloadPageBtn = document.getElementById('reloadPageBtn');
     const settingsLockedNote = document.getElementById('settingsLockedNote');
     const previewVoiceBtn = document.getElementById('previewVoiceBtn');
     const loadVoicesBtn = document.getElementById('loadVoicesBtn');
@@ -664,7 +668,18 @@
       localStorage.setItem('gemini_api_key_html', apiKeyInput.value.trim());
     }
 
+    // iOS 加到主畫面的網頁沒有重新整理按鈕；加上時間參數避免讀到快取的舊版頁面
+    function reloadPage() {
+      const hasConversation = isSessionActive || transcriptContainer.querySelector('[id^="transcript-"]');
+      if (hasConversation && !confirm('重新載入會中斷翻譯並清除目前的對話紀錄，確定要重新載入嗎？')) return;
+      localStorage.setItem('gemini_api_key_html', apiKeyInput.value.trim());
+      const url = new URL(location.href);
+      url.searchParams.set('_reload', Date.now());
+      location.replace(url.toString());
+    }
+
     settingsBtn.addEventListener('click', openSettings);
+    reloadPageBtn.addEventListener('click', reloadPage);
     settingsCloseBtn.addEventListener('click', closeSettings);
     settingsDoneBtn.addEventListener('click', closeSettings);
     settingsModal.addEventListener('click', (e) => {
