@@ -34,9 +34,9 @@
 
   <header class="bg-white shadow-sm border-b border-slate-200 px-4 md:px-6 py-4 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-3">
-      <div class="bg-blue-600 p-2 rounded-lg text-white shadow-md">
-        <i data-lucide="arrow-left-right"></i>
-      </div>
+      <button id="settingsBtn" type="button" class="bg-blue-600 hover:bg-blue-700 p-2 rounded-lg text-white shadow-md transition-colors" title="設定" aria-label="設定">
+        <i data-lucide="settings"></i>
+      </button>
       <h1 class="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">
         Gemini 即時翻譯機 <span id="headerLangBadge" class="whitespace-nowrap text-sm font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded ml-2 border border-blue-200">翻譯成英文</span>
       </h1>
@@ -76,27 +76,6 @@
         </optgroup>
       </select>
 
-      <!-- Voice Design: 選擇人聲與語氣設定 -->
-      <select id="voiceSelect" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hidden md:block bg-white text-slate-700">
-        <option value="Puck">Puck (活潑)</option>
-        <option value="Charon">Charon (專業)</option>
-        <option value="Kore">Kore (堅定)</option>
-        <option value="Fenrir">Fenrir (熱情)</option>
-        <option value="Aoede">Aoede (輕鬆)</option>
-        <option value="Zephyr" selected>Zephyr (明亮)</option>
-      </select>
-      <select id="styleSelect" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hidden md:block bg-white text-slate-700">
-        <option value="naturally">自然語氣</option>
-        <option value="cheerfully and excitedly">熱情歡樂</option>
-        <option value="professionally and calmly">專業冷靜</option>
-        <option value="like a news anchor">新聞主播</option>
-      </select>
-      <input
-        type="password"
-        id="apiKeyInput"
-        placeholder="輸入 Gemini API Key..."
-        class="text-sm border border-slate-300 rounded-md px-3 py-1.5 w-48 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-      />
       <span id="statusBadge" class="flex items-center text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 transition-colors whitespace-nowrap">
         待機中
       </span>
@@ -159,6 +138,91 @@
     </div>
   </footer>
 
+  <!-- 設定視窗 -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-slate-900/40 p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] flex flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-blue-600"></i>設定
+        </h2>
+        <button id="settingsCloseBtn" type="button" class="p-1.5 rounded-md text-slate-500 hover:bg-slate-100" aria-label="關閉">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="px-5 py-4 flex flex-col gap-5 overflow-y-auto">
+        <p id="settingsLockedNote" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+          翻譯進行中無法修改設定，請先停止翻譯。
+        </p>
+
+        <section class="flex flex-col gap-1.5">
+          <label for="apiKeyInput" class="text-sm font-semibold text-slate-700">Gemini API Key</label>
+          <input
+            type="password"
+            id="apiKeyInput"
+            placeholder="輸入 Gemini API Key..."
+            autocomplete="off"
+            class="text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+          />
+          <p class="text-xs text-slate-400">只儲存在這台裝置的瀏覽器中。</p>
+        </section>
+
+        <section class="flex flex-col gap-1.5">
+          <label for="voiceSelect" class="text-sm font-semibold text-slate-700">發音員</label>
+          <select id="voiceSelect" class="text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700 disabled:bg-slate-100"></select>
+          <div class="flex gap-2">
+            <button id="previewVoiceBtn" type="button" class="flex items-center gap-1.5 text-sm border border-slate-300 rounded-md px-3 py-1.5 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
+              <i data-lucide="play" class="w-4 h-4"></i>試聽
+            </button>
+            <button id="loadVoicesBtn" type="button" class="flex items-center gap-1.5 text-sm border border-slate-300 rounded-md px-3 py-1.5 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
+              <i data-lucide="refresh-cw" class="w-4 h-4"></i>載入我的自訂語音
+            </button>
+          </div>
+          <p id="voiceStatus" class="text-xs text-slate-500"></p>
+        </section>
+
+        <section class="flex flex-col gap-1.5">
+          <label for="styleSelect" class="text-sm font-semibold text-slate-700">語氣</label>
+          <select id="styleSelect" class="text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700 disabled:bg-slate-100">
+            <option value="naturally">自然語氣</option>
+            <option value="cheerfully and excitedly">熱情歡樂</option>
+            <option value="professionally and calmly">專業冷靜</option>
+            <option value="like a news anchor">新聞主播</option>
+          </select>
+        </section>
+
+        <section class="flex flex-col gap-2 border-t border-slate-200 pt-4">
+          <h3 class="text-sm font-semibold text-slate-700">設計新語音（Voice Design）</h3>
+          <p class="text-xs text-slate-400">用文字描述年齡、性別、音色與口音，建立後會存在你的 Gemini 專案中。</p>
+          <input
+            type="text"
+            id="designNameInput"
+            placeholder="語音名稱，例如：溫暖的導遊"
+            class="text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+          />
+          <select id="designGenderSelect" class="text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700 disabled:bg-slate-100">
+            <option value="female">女性</option>
+            <option value="male">男性</option>
+          </select>
+          <textarea
+            id="designPromptInput"
+            rows="3"
+            placeholder="例如：A warm, friendly tour guide in her 30s with a clear, gentle voice."
+            class="text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+          ></textarea>
+          <button id="createVoiceBtn" type="button" class="self-start flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-md px-3 py-1.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+            <i data-lucide="wand-sparkles" class="w-4 h-4"></i>建立並試聽
+          </button>
+          <p id="designStatus" class="text-xs text-slate-500"></p>
+        </section>
+      </div>
+
+      <div class="px-5 py-4 border-t border-slate-200 flex justify-end shrink-0">
+        <button id="settingsDoneBtn" type="button" class="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 text-sm font-semibold">完成</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     // 動態載入 Google GenAI SDK
     import { GoogleGenAI, Modality } from 'https://esm.sh/@google/genai';
@@ -189,6 +253,19 @@
     const textInputBar = document.getElementById('textInputBar');
     const manualTextInput = document.getElementById('manualTextInput');
     const sendTextBtn = document.getElementById('sendTextBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsModal = document.getElementById('settingsModal');
+    const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+    const settingsDoneBtn = document.getElementById('settingsDoneBtn');
+    const settingsLockedNote = document.getElementById('settingsLockedNote');
+    const previewVoiceBtn = document.getElementById('previewVoiceBtn');
+    const loadVoicesBtn = document.getElementById('loadVoicesBtn');
+    const voiceStatus = document.getElementById('voiceStatus');
+    const designNameInput = document.getElementById('designNameInput');
+    const designGenderSelect = document.getElementById('designGenderSelect');
+    const designPromptInput = document.getElementById('designPromptInput');
+    const createVoiceBtn = document.getElementById('createVoiceBtn');
+    const designStatus = document.getElementById('designStatus');
 
     // 處理語言切換事件
     const langNameMap = {
@@ -317,6 +394,200 @@
 
     const savedKey = localStorage.getItem('gemini_api_key_html');
     if (savedKey) apiKeyInput.value = savedKey;
+    apiKeyInput.addEventListener('change', () => {
+      localStorage.setItem('gemini_api_key_html', apiKeyInput.value.trim());
+    });
+
+    // ===== 發音員（內建語音 + Voice Design 自訂語音） =====
+    const PREBUILT_VOICES = [
+      ['Zephyr', '明亮'], ['Puck', '活潑'], ['Charon', '專業'], ['Kore', '堅定'],
+      ['Fenrir', '熱情'], ['Leda', '年輕'], ['Orus', '沉穩'], ['Aoede', '輕鬆'],
+      ['Callirrhoe', '隨和'], ['Autonoe', '明亮'], ['Enceladus', '氣聲'], ['Iapetus', '清晰'],
+      ['Umbriel', '隨和'], ['Algieba', '柔順'], ['Despina', '柔順'], ['Erinome', '清晰'],
+      ['Algenib', '沙啞'], ['Rasalgethi', '知性'], ['Laomedeia', '活潑'], ['Achernar', '柔和'],
+      ['Alnilam', '堅定'], ['Schedar', '平穩'], ['Gacrux', '成熟'], ['Pulcherrima', '積極'],
+      ['Achird', '友善'], ['Zubenelgenubi', '隨興'], ['Vindemiatrix', '溫柔'], ['Sadachbia', '生動'],
+      ['Sadaltager', '博學'], ['Sulafat', '溫暖'],
+    ];
+    const VOICE_DESIGN_MODEL = 'gemini-3.8-flash-tts';
+    const VOICE_KEY = 'gemini_voice_html';
+    const VOICE_LABEL_KEY = 'gemini_voice_label_html';
+    const VOICE_CUSTOM_KEY = 'gemini_voice_custom_html';
+    const STYLE_KEY = 'gemini_style_html';
+
+    const customVoiceGroup = document.createElement('optgroup');
+    customVoiceGroup.label = '我的自訂語音';
+
+    function addCustomVoiceOption(id, label) {
+      let opt = [...customVoiceGroup.children].find((o) => o.value === id);
+      if (!opt) {
+        opt = new Option(label, id);
+        opt.dataset.custom = '1';
+        customVoiceGroup.appendChild(opt);
+      } else {
+        opt.textContent = label;
+      }
+      return opt;
+    }
+
+    function selectedVoiceIsCustom() {
+      return voiceSelect.selectedOptions[0]?.dataset.custom === '1';
+    }
+
+    function saveVoiceChoice() {
+      localStorage.setItem(VOICE_KEY, voiceSelect.value);
+      localStorage.setItem(VOICE_LABEL_KEY, voiceSelect.selectedOptions[0]?.textContent || voiceSelect.value);
+      localStorage.setItem(VOICE_CUSTOM_KEY, selectedVoiceIsCustom() ? '1' : '');
+      previewVoiceBtn.disabled = !selectedVoiceIsCustom() || isSessionActive || isConnecting;
+      voiceStatus.textContent = selectedVoiceIsCustom() ? '' : '內建語音沒有試聽音檔；自訂語音可以試聽。';
+    }
+
+    function buildVoiceOptions() {
+      const prebuiltGroup = document.createElement('optgroup');
+      prebuiltGroup.label = '內建語音';
+      for (const [name, desc] of PREBUILT_VOICES) prebuiltGroup.appendChild(new Option(`${name}（${desc}）`, name));
+      voiceSelect.appendChild(prebuiltGroup);
+      voiceSelect.appendChild(customVoiceGroup);
+
+      const savedVoice = localStorage.getItem(VOICE_KEY) || 'Zephyr';
+      if (localStorage.getItem(VOICE_CUSTOM_KEY) === '1') {
+        addCustomVoiceOption(savedVoice, localStorage.getItem(VOICE_LABEL_KEY) || savedVoice);
+      }
+      voiceSelect.value = savedVoice;
+      if (!voiceSelect.value) voiceSelect.value = 'Zephyr';
+
+      const savedStyle = localStorage.getItem(STYLE_KEY);
+      if (savedStyle) styleSelect.value = savedStyle;
+      if (!styleSelect.value) styleSelect.value = 'naturally';
+    }
+
+    function getSettingsClient() {
+      const key = apiKeyInput.value.trim();
+      if (!key) throw new Error('請先輸入 API Key。');
+      const ai = new GoogleGenAI({ apiKey: key });
+      if (!ai.voices) throw new Error('目前載入的 SDK 版本不支援 Voices API。');
+      return ai;
+    }
+
+    function playWavBase64(data) {
+      new Audio('data:audio/wav;base64,' + data).play();
+    }
+
+    async function loadCustomVoices() {
+      loadVoicesBtn.disabled = true;
+      voiceStatus.textContent = '讀取自訂語音中…';
+      try {
+        const ai = getSettingsClient();
+        const res = await ai.voices.list({ type: ['prompted'] });
+        const voices = res.voices ?? [];
+        for (const v of voices) addCustomVoiceOption(v.id, v.display_name || v.id);
+        voiceStatus.textContent = voices.length
+          ? `已載入 ${voices.length} 個自訂語音。`
+          : '你的專案還沒有自訂語音，可以在下方建立。';
+      } catch (err) {
+        console.error(err);
+        voiceStatus.textContent = '讀取失敗：' + (err.message || err);
+      } finally {
+        loadVoicesBtn.disabled = isSessionActive || isConnecting;
+      }
+    }
+
+    async function previewSelectedVoice() {
+      if (!selectedVoiceIsCustom()) return;
+      previewVoiceBtn.disabled = true;
+      voiceStatus.textContent = '取得試聽音檔中…';
+      try {
+        const ai = getSettingsClient();
+        const voice = await ai.voices.get(voiceSelect.value);
+        if (voice.sample_audio?.data) {
+          playWavBase64(voice.sample_audio.data);
+          voiceStatus.textContent = '';
+        } else {
+          voiceStatus.textContent = '這個語音沒有試聽音檔。';
+        }
+      } catch (err) {
+        console.error(err);
+        voiceStatus.textContent = '試聽失敗：' + (err.message || err);
+      } finally {
+        previewVoiceBtn.disabled = !selectedVoiceIsCustom() || isSessionActive || isConnecting;
+      }
+    }
+
+    async function createDesignedVoice() {
+      const name = designNameInput.value.trim();
+      const description = designPromptInput.value.trim();
+      if (!name || !description) {
+        designStatus.textContent = '請輸入語音名稱與描述。';
+        return;
+      }
+      createVoiceBtn.disabled = true;
+      designStatus.textContent = '建立語音中，約需數秒…';
+      try {
+        const ai = getSettingsClient();
+        const created = await ai.voices.create({
+          store: true,
+          voice: {
+            model: VOICE_DESIGN_MODEL,
+            type: 'prompted',
+            display_name: name,
+            gender: designGenderSelect.value,
+            language_code: langCodeMap[targetLangSelect.value] || 'en-US',
+            prompted: { input: description },
+          },
+        });
+        addCustomVoiceOption(created.id, name);
+        voiceSelect.value = created.id;
+        saveVoiceChoice();
+        if (created.sample_audio?.data) playWavBase64(created.sample_audio.data);
+        designStatus.textContent = `已建立「${name}」並設為發音員。`;
+        designNameInput.value = '';
+        designPromptInput.value = '';
+      } catch (err) {
+        console.error(err);
+        designStatus.textContent = '建立失敗：' + (err.message || err);
+      } finally {
+        createVoiceBtn.disabled = isSessionActive || isConnecting;
+      }
+    }
+
+    // ===== 設定視窗 =====
+    function setSettingsLocked(locked) {
+      settingsLockedNote.classList.toggle('hidden', !locked);
+      for (const el of [apiKeyInput, loadVoicesBtn, designNameInput, designGenderSelect, designPromptInput, createVoiceBtn]) {
+        el.disabled = locked;
+      }
+      previewVoiceBtn.disabled = locked || !selectedVoiceIsCustom();
+    }
+
+    function openSettings() {
+      setSettingsLocked(isSessionActive || isConnecting);
+      settingsModal.classList.remove('hidden');
+      settingsModal.classList.add('flex');
+    }
+
+    function closeSettings() {
+      settingsModal.classList.add('hidden');
+      settingsModal.classList.remove('flex');
+      localStorage.setItem('gemini_api_key_html', apiKeyInput.value.trim());
+    }
+
+    settingsBtn.addEventListener('click', openSettings);
+    settingsCloseBtn.addEventListener('click', closeSettings);
+    settingsDoneBtn.addEventListener('click', closeSettings);
+    settingsModal.addEventListener('click', (e) => {
+      if (e.target === settingsModal) closeSettings();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !settingsModal.classList.contains('hidden')) closeSettings();
+    });
+    voiceSelect.addEventListener('change', saveVoiceChoice);
+    styleSelect.addEventListener('change', () => localStorage.setItem(STYLE_KEY, styleSelect.value));
+    loadVoicesBtn.addEventListener('click', loadCustomVoices);
+    previewVoiceBtn.addEventListener('click', previewSelectedVoice);
+    createVoiceBtn.addEventListener('click', createDesignedVoice);
+
+    buildVoiceOptions();
+    saveVoiceChoice();
 
     function decodeBase64(base64) {
       const binaryString = atob(base64);
@@ -373,7 +644,6 @@
 
     function updateUIStatus() {
       if (isConnecting) {
-        apiKeyInput.style.display = 'none';
         voiceSelect.disabled = true;
         styleSelect.disabled = true;
         targetLangSelect.disabled = true;
@@ -389,7 +659,6 @@
         controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-400 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold cursor-wait shadow-lg w-full';
         controlBtn.innerHTML = '<i data-lucide="mic"></i><span>連線中...</span>';
       } else if (isSessionActive) {
-        apiKeyInput.style.display = 'none';
         welcomeScreen.style.display = 'none';
         voiceSelect.disabled = true;
         styleSelect.disabled = true;
@@ -413,7 +682,6 @@
         controlBtn.className = 'flex items-center justify-center gap-3 bg-red-500 hover:bg-red-600 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-all shadow-lg shadow-red-500/30 w-full animate-pulse';
         controlBtn.innerHTML = '<i data-lucide="mic-off"></i><span>停止翻譯</span>';
       } else {
-        apiKeyInput.style.display = 'block';
         voiceSelect.disabled = false;
         styleSelect.disabled = false;
         targetLangSelect.disabled = false;
@@ -430,6 +698,7 @@
         controlBtn.className = 'flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full px-8 py-3.5 md:py-4 text-lg font-semibold transition-colors shadow-lg shadow-blue-600/30 w-full';
         controlBtn.innerHTML = '<i data-lucide="mic"></i><span>開始語音翻譯</span>';
       }
+      setSettingsLocked(isConnecting || isSessionActive);
       lucide.createIcons();
     }
 
@@ -607,7 +876,8 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
     async function startSession() {
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) {
-        showError('請先輸入您的 Gemini API Key。');
+        showError('請先在設定中輸入您的 Gemini API Key。');
+        openSettings();
         return;
       }
       if (sourceLangSelect.value === targetLangSelect.value) {
