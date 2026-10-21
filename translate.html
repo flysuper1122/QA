@@ -175,6 +175,9 @@
             <button id="loadVoicesBtn" type="button" class="flex items-center gap-1.5 text-sm border border-slate-300 rounded-md px-3 py-1.5 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
               <i data-lucide="refresh-cw" class="w-4 h-4"></i>載入我的自訂語音
             </button>
+            <button id="deleteVoiceBtn" type="button" class="hidden items-center gap-1.5 text-sm border border-red-200 rounded-md px-3 py-1.5 text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>刪除
+            </button>
           </div>
           <p id="voiceStatus" class="text-xs text-slate-500"></p>
         </section>
@@ -209,7 +212,7 @@
             class="text-sm border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
           ></textarea>
           <button id="createVoiceBtn" type="button" class="self-start flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-md px-3 py-1.5 font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
-            <i data-lucide="wand-sparkles" class="w-4 h-4"></i>建立並試聽
+            <i data-lucide="wand-sparkles" class="w-4 h-4"></i>建立語音
           </button>
           <p id="designStatus" class="text-xs text-slate-500"></p>
         </section>
@@ -261,6 +264,7 @@
     const reloadPageBtn = document.getElementById('reloadPageBtn');
     const settingsLockedNote = document.getElementById('settingsLockedNote');
     const previewVoiceBtn = document.getElementById('previewVoiceBtn');
+    const deleteVoiceBtn = document.getElementById('deleteVoiceBtn');
     const loadVoicesBtn = document.getElementById('loadVoicesBtn');
     const voiceStatus = document.getElementById('voiceStatus');
     const designNameInput = document.getElementById('designNameInput');
@@ -403,33 +407,45 @@
 
     // ===== 發音員（內建語音 + Voice Design 自訂語音） =====
     const PREBUILT_VOICES = [
-      ['Zephyr', '明亮'], ['Puck', '活潑'], ['Charon', '專業'], ['Kore', '堅定'],
-      ['Fenrir', '熱情'], ['Leda', '年輕'], ['Orus', '沉穩'], ['Aoede', '輕鬆'],
-      ['Callirrhoe', '隨和'], ['Autonoe', '明亮'], ['Enceladus', '氣聲'], ['Iapetus', '清晰'],
-      ['Umbriel', '隨和'], ['Algieba', '柔順'], ['Despina', '柔順'], ['Erinome', '清晰'],
-      ['Algenib', '沙啞'], ['Rasalgethi', '知性'], ['Laomedeia', '活潑'], ['Achernar', '柔和'],
-      ['Alnilam', '堅定'], ['Schedar', '平穩'], ['Gacrux', '成熟'], ['Pulcherrima', '積極'],
-      ['Achird', '友善'], ['Zubenelgenubi', '隨興'], ['Vindemiatrix', '溫柔'], ['Sadachbia', '生動'],
-      ['Sadaltager', '博學'], ['Sulafat', '溫暖'],
+      ['Zephyr', '明亮', 'female'], ['Puck', '活潑', 'male'], ['Charon', '專業', 'male'], ['Kore', '堅定', 'female'],
+      ['Fenrir', '熱情', 'male'], ['Leda', '年輕', 'female'], ['Orus', '沉穩', 'male'], ['Aoede', '輕鬆', 'female'],
+      ['Callirrhoe', '隨和', 'female'], ['Autonoe', '明亮', 'female'], ['Enceladus', '氣聲', 'male'], ['Iapetus', '清晰', 'male'],
+      ['Umbriel', '隨和', 'male'], ['Algieba', '柔順', 'male'], ['Despina', '柔順', 'female'], ['Erinome', '清晰', 'female'],
+      ['Algenib', '沙啞', 'male'], ['Rasalgethi', '知性', 'male'], ['Laomedeia', '活潑', 'female'], ['Achernar', '柔和', 'female'],
+      ['Alnilam', '堅定', 'male'], ['Schedar', '平穩', 'male'], ['Gacrux', '成熟', 'female'], ['Pulcherrima', '積極', 'female'],
+      ['Achird', '友善', 'male'], ['Zubenelgenubi', '隨興', 'male'], ['Vindemiatrix', '溫柔', 'female'], ['Sadachbia', '生動', 'male'],
+      ['Sadaltager', '博學', 'male'], ['Sulafat', '溫暖', 'female'],
     ];
-    const VOICE_DESIGN_MODEL = 'gemini-3.8-flash-tts';
+    const GENDER_ZH = { female: '女聲', male: '男聲' };
+    // 試聽用低延遲的 Flash-Lite TTS；建立語音時不指定模型（Flash-Lite 不支援 Voice Design），由 API 使用預設的建立模型
+    const PREVIEW_TTS_MODEL = 'gemini-3.8-flash-lite-tts';
     const VOICE_KEY = 'gemini_voice_html';
     const VOICE_LABEL_KEY = 'gemini_voice_label_html';
     const VOICE_CUSTOM_KEY = 'gemini_voice_custom_html';
+    const VOICE_GENDER_KEY = 'gemini_voice_gender_html';
     const STYLE_KEY = 'gemini_style_html';
 
     const customVoiceGroup = document.createElement('optgroup');
     customVoiceGroup.label = '我的自訂語音';
 
-    function addCustomVoiceOption(id, label) {
+    // API 回傳的性別格式可能是 female / FEMALE 等，統一成 female、male 或空字串
+    function normalizeGender(value) {
+      const g = String(value || '').toLowerCase();
+      if (g.includes('female')) return 'female';
+      if (g.includes('male')) return 'male';
+      return '';
+    }
+
+    function addCustomVoiceOption(id, name, gender = '') {
       let opt = [...customVoiceGroup.children].find((o) => o.value === id);
       if (!opt) {
-        opt = new Option(label, id);
+        opt = new Option('', id);
         opt.dataset.custom = '1';
         customVoiceGroup.appendChild(opt);
-      } else {
-        opt.textContent = label;
       }
+      opt.dataset.name = name;
+      opt.dataset.gender = gender;
+      opt.textContent = gender ? `${name}（${GENDER_ZH[gender]}）` : name;
       return opt;
     }
 
@@ -437,11 +453,18 @@
       return voiceSelect.selectedOptions[0]?.dataset.custom === '1';
     }
 
+    function selectedVoiceGender() {
+      return voiceSelect.selectedOptions[0]?.dataset.gender || '';
+    }
+
     const NO_KEY_PREVIEW_HINT = '輸入 API Key 後即可試聽。';
 
     function updatePreviewButton() {
       const hasKey = !!apiKeyInput.value.trim();
       previewVoiceBtn.disabled = !hasKey || isSessionActive || isConnecting;
+      deleteVoiceBtn.classList.toggle('hidden', !selectedVoiceIsCustom());
+      deleteVoiceBtn.classList.toggle('flex', selectedVoiceIsCustom());
+      deleteVoiceBtn.disabled = !hasKey || isSessionActive || isConnecting;
       if (!hasKey) {
         voiceStatus.textContent = NO_KEY_PREVIEW_HINT;
       } else if (voiceStatus.textContent === NO_KEY_PREVIEW_HINT) {
@@ -451,22 +474,35 @@
 
     function saveVoiceChoice() {
       localStorage.setItem(VOICE_KEY, voiceSelect.value);
-      localStorage.setItem(VOICE_LABEL_KEY, voiceSelect.selectedOptions[0]?.textContent || voiceSelect.value);
+      localStorage.setItem(VOICE_LABEL_KEY, voiceSelect.selectedOptions[0]?.dataset.name || voiceSelect.value);
       localStorage.setItem(VOICE_CUSTOM_KEY, selectedVoiceIsCustom() ? '1' : '');
+      localStorage.setItem(VOICE_GENDER_KEY, selectedVoiceGender());
       voiceStatus.textContent = '';
       updatePreviewButton();
     }
 
     function buildVoiceOptions() {
-      const prebuiltGroup = document.createElement('optgroup');
-      prebuiltGroup.label = '內建語音';
-      for (const [name, desc] of PREBUILT_VOICES) prebuiltGroup.appendChild(new Option(`${name}（${desc}）`, name));
-      voiceSelect.appendChild(prebuiltGroup);
+      for (const gender of ['female', 'male']) {
+        const group = document.createElement('optgroup');
+        group.label = `內建${GENDER_ZH[gender]}`;
+        for (const [name, desc, g] of PREBUILT_VOICES) {
+          if (g !== gender) continue;
+          const opt = new Option(`${name}（${desc}）`, name);
+          opt.dataset.name = name;
+          opt.dataset.gender = g;
+          group.appendChild(opt);
+        }
+        voiceSelect.appendChild(group);
+      }
       voiceSelect.appendChild(customVoiceGroup);
 
       const savedVoice = localStorage.getItem(VOICE_KEY) || 'Zephyr';
       if (localStorage.getItem(VOICE_CUSTOM_KEY) === '1') {
-        addCustomVoiceOption(savedVoice, localStorage.getItem(VOICE_LABEL_KEY) || savedVoice);
+        addCustomVoiceOption(
+          savedVoice,
+          localStorage.getItem(VOICE_LABEL_KEY) || savedVoice,
+          localStorage.getItem(VOICE_GENDER_KEY) || ''
+        );
       }
       voiceSelect.value = savedVoice;
       if (!voiceSelect.value) voiceSelect.value = 'Zephyr';
@@ -536,7 +572,7 @@
     async function synthesizePreview(ai, voice, text, style) {
       if (!ai.interactions) throw new Error('目前載入的 SDK 版本不支援語音合成（Interactions API）。');
       const interaction = await ai.interactions.create({
-        model: VOICE_DESIGN_MODEL,
+        model: PREVIEW_TTS_MODEL,
         input: [{
           type: 'user_input',
           content: [{
@@ -563,7 +599,8 @@
         requireVoicesApi(ai);
         const res = await ai.voices.list({ type: ['prompted'] });
         const voices = res.voices ?? [];
-        for (const v of voices) addCustomVoiceOption(v.id, v.display_name || v.id);
+        for (const v of voices) addCustomVoiceOption(v.id, v.display_name || v.id, normalizeGender(v.gender));
+        updatePreviewButton();
         voiceStatus.textContent = voices.length
           ? `已載入 ${voices.length} 個自訂語音。`
           : '你的專案還沒有自訂語音，可以在下方建立。';
@@ -589,13 +626,7 @@
       voiceStatus.textContent = '產生試聽語音中…';
       try {
         const ai = getSettingsClient();
-        let wav = '';
-        // 自訂語音優先使用建立時產生的試聽音檔
-        if (selectedVoiceIsCustom() && ai.voices) {
-          const info = await ai.voices.get(voice);
-          if (info.sample_audio?.data) wav = toPlayableWav(info.sample_audio.data, info.sample_audio.mime_type || '');
-        }
-        if (!wav) wav = await synthesizePreview(ai, voice, text, style);
+        const wav = await synthesizePreview(ai, voice, text, style);
         previewCache.set(cacheKey, wav);
         playWavBase64(wav);
         voiceStatus.textContent = '';
@@ -607,34 +638,76 @@
       }
     }
 
+    const FEMALE_WORDS = /\b(she|her|hers|woman|women|female|girl|lady|mother|grandmother)\b|女性|女人|女生|女聲|女孩|她|媽媽|姊姊|姐姐|阿姨|奶奶|婆婆/i;
+    const MALE_WORDS = /\b(he|him|his|man|men|male|boy|gentleman|father|grandfather)\b|男性|男人|男生|男聲|男孩|爸爸|哥哥|叔叔|伯伯|爺爺/i;
+
+    async function deleteSelectedVoice() {
+      if (!selectedVoiceIsCustom()) return;
+      const id = voiceSelect.value;
+      const name = voiceSelect.selectedOptions[0]?.dataset.name || id;
+      if (!confirm(`確定要刪除自訂語音「${name}」嗎？刪除後無法復原。`)) return;
+
+      deleteVoiceBtn.disabled = true;
+      voiceStatus.textContent = '刪除中…';
+      try {
+        const ai = getSettingsClient();
+        requireVoicesApi(ai);
+        await ai.voices.delete(id);
+        voiceSelect.selectedOptions[0].remove();
+        for (const key of [...previewCache.keys()]) {
+          if (key.startsWith(id + '|')) previewCache.delete(key);
+        }
+        voiceSelect.value = 'Zephyr';
+        saveVoiceChoice();
+        voiceStatus.textContent = `已刪除「${name}」，發音員改回 Zephyr。`;
+      } catch (err) {
+        console.error(err);
+        voiceStatus.textContent = '刪除失敗：' + (err.message || err);
+        updatePreviewButton();
+      }
+    }
+
     async function createDesignedVoice() {
       const name = designNameInput.value.trim();
-      const description = designPromptInput.value.trim();
+      let description = designPromptInput.value.trim();
       if (!name || !description) {
         designStatus.textContent = '請輸入語音名稱與描述。';
         return;
       }
+
+      // 描述中的性別必須與選擇的性別一致，否則產生的聲音容易性別錯亂
+      const gender = designGenderSelect.value;
+      const mentionsFemale = FEMALE_WORDS.test(description);
+      const mentionsMale = MALE_WORDS.test(description);
+      const mentionsSelected = gender === 'female' ? mentionsFemale : mentionsMale;
+      const mentionsOpposite = gender === 'female' ? mentionsMale : mentionsFemale;
+      if (mentionsOpposite && !mentionsSelected) {
+        designStatus.textContent = `描述裡寫的是${gender === 'female' ? '男性' : '女性'}，但性別選的是${GENDER_ZH[gender]}，請讓兩者一致。`;
+        return;
+      }
+      if (!mentionsSelected) {
+        description = `A ${gender} voice. ${description}`;
+      }
+
       createVoiceBtn.disabled = true;
-      designStatus.textContent = '建立語音中，約需數秒…';
+      designStatus.textContent = '建立語音中…';
       try {
         const ai = getSettingsClient();
         requireVoicesApi(ai);
         const created = await ai.voices.create({
           store: true,
           voice: {
-            model: VOICE_DESIGN_MODEL,
             type: 'prompted',
             display_name: name,
-            gender: designGenderSelect.value,
+            gender,
             language_code: langCodeMap[targetLangSelect.value] || 'en-US',
             prompted: { input: description },
           },
         });
-        addCustomVoiceOption(created.id, name);
+        addCustomVoiceOption(created.id, name, gender);
         voiceSelect.value = created.id;
         saveVoiceChoice();
-        if (created.sample_audio?.data) playWavBase64(created.sample_audio.data);
-        designStatus.textContent = `已建立「${name}」並設為發音員。`;
+        designStatus.textContent = `已建立「${name}」並設為發音員，可按上方「試聽」聽聽看。`;
         designNameInput.value = '';
         designPromptInput.value = '';
       } catch (err) {
@@ -690,6 +763,7 @@
     styleSelect.addEventListener('change', () => localStorage.setItem(STYLE_KEY, styleSelect.value));
     loadVoicesBtn.addEventListener('click', loadCustomVoices);
     previewVoiceBtn.addEventListener('click', previewSelectedVoice);
+    deleteVoiceBtn.addEventListener('click', deleteSelectedVoice);
     createVoiceBtn.addEventListener('click', createDesignedVoice);
 
     buildVoiceOptions();
@@ -1038,7 +1112,12 @@ Otherwise reply {"match": false, "chinese": "<the translation's meaning in Tradi
         const selectedStyle = styleSelect.value;
         const targetLang = targetLangSelect.value;
         const sourceLang = activeSourceLang;
-        const closing = 'Do not answer questions, do not hold a conversation, do not add any extra commentary. Just listen and output the exact translation.';
+        // 讓翻譯用語的性別（如泰文 ครับ/ค่ะ、日文第一人稱）與發音員聲音一致
+        const voiceGender = selectedVoiceGender();
+        const genderNote = voiceGender
+          ? `Your speaking voice is ${voiceGender}. Whenever the output language has gender-specific speech forms (for example Thai polite particles ครับ/ค่ะ or gendered first-person pronouns), always use the ${voiceGender} forms so they match your voice.\n`
+          : '';
+        const closing = genderNote + 'Do not answer questions, do not hold a conversation, do not add any extra commentary. Just listen and output the exact translation.';
 
         let instruction;
         if (sourceLang === 'auto') {
